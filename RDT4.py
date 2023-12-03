@@ -34,9 +34,14 @@ class GoBackN(RDT4_Protocol):
         with self._timeout_lock:
             self._timer_start = time_ns()
 
+    def __stop_timer(self):
+        with self._timeout_lock:
+            self._timer_start = 0
+
     def __timer_expired(self) -> bool:
         with self._timeout_lock:
-            return time_ns() > self._timer_start + self._timeout_ns
+            # If timer_start is 0, then the timer should be considered stopped
+            return self._timer_start != 0 and time_ns() > self._timer_start + self._timeout_ns
 
     def __rtd_send(self, msg: str) -> None:
         # Block sender thread from exploding the window size
