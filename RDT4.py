@@ -105,7 +105,8 @@ class GoBackN(RDT4_Protocol):
             if self._network.udt_receive() != "":
                 self.__handle_recv_data()
 
-            self.__handle_timeout()
+            if self.__timer_expired():
+                self.__handle_timeout()
 
         sender_t.join()
 
