@@ -4,7 +4,7 @@ from time import sleep, time_ns
 from abc import ABC, abstractmethod
 from threading import Thread, Semaphore, Lock
 
-ACK  = "1"
+ACK = "1"
 
 class RDT4_Protocol(ABC):
     @abstractmethod
@@ -79,14 +79,16 @@ class GoBackN(RDT4_Protocol):
             # Releases space in the senders thread window
             self._data_semph.release(packets_acked)
 
-    def __rtd_send(self, msg: str) -> None:
+    def __rtd_send(self, msg: str, is_last: bool) -> None:
         # Block sender thread from exploding the window size
         self._data_semph.acquire() 
 
         with self._seq_num_lock:
-            packet = Packet(self._next_seq_num, msg)
+            packet = Packet(self._next_seq_num, msg, is_last)
             self._packets_in_air.append(packet)
             debug_log(f"SENDER: Sent packet seq {self._next_seq_num}")
+            if is_last:
+                debug_log(f"SENDER: LAST PACKET")
             self._network.udt_send(packet.get_byte_S())
 
             # First start of the timer. Subsequent restarts will be handled by 
@@ -106,6 +108,12 @@ class GoBackN(RDT4_Protocol):
         # Adds received data to buffer and sends ACK packet.
         self._recv_buffer += packet.msg_S
         self._network.udt_send(Packet(self._expected_seq_num, ACK).get_byte_S())
+
+        # Sets flag if packet received was the last in the stream
+        if packet.is_fin_pack():
+            self._fin_recv = True
+            return
+
         self._last_recv_seq_num = self._expected_seq_num
         self._expected_seq_num = (self._expected_seq_num + 1) % self._window_size
         
@@ -122,11 +130,12 @@ class GoBackN(RDT4_Protocol):
         self._seq_num_lock = Lock()
 
         # Initialize sender thread
-        def sender_task(message):
+        def sender_task(message: list):
             # TODO Bufferize message to fit into packets
             buffer = message
-            for data in buffer:
-                self.__rtd_send(data)
+            buf_len = len(buffer)
+            for idx, data in buffer.enumerate():
+                self.__rtd_send(data, idx == buf_len-1)
 
         sender_t = Thread(target=sender_task, args=[msg])
         # Sender thread will send the packets in the background and synchronize
@@ -157,18 +166,18 @@ class GoBackN(RDT4_Protocol):
         self._recv_buffer = ""
         self._expected_seq_num = 0
         self._last_recv_seq_num = 0
+        self._fin_recv = False
 
         # Continuously pool the data received, since the simulated lower layer
         # (Network Layers) does not notify when data reaches us.
         # TODO Define when receivers job is ended so that the connection can be
         # restarted
-        while True:
+        while not self._fin_recv:
             data_recv = self._network.udt_receive()
             if data_recv != "":
                 self.__rtd_receive(data_recv)
 
         return self._recv_buffer
-
 
 
 class SelectiveRepeat(RDT4_Protocol):
