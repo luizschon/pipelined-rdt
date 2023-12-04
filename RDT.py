@@ -28,7 +28,6 @@ class Packet:
 
     @classmethod
     def from_byte_S(self, byte_S, is_fin=False):
-        print("BYTES: " + byte_S)
         if Packet.corrupt(byte_S):
             raise RuntimeError('Cannot initialize Packet: byte_S is corrupt')
 
