@@ -152,7 +152,7 @@ class GoBackN(RDT4_Protocol):
 
         sender_t.join()
 
-    def receive(self):
+    def receive(self) -> str:
         # Initialize control and state variables.
         self._recv_buffer = ""
         self._expected_seq_num = 0
@@ -166,6 +166,8 @@ class GoBackN(RDT4_Protocol):
             data_recv = self._network.udt_receive()
             if data_recv != "":
                 self.__rtd_receive(data_recv)
+
+        return self._recv_buffer
 
 
 
