@@ -31,7 +31,7 @@ class GoBackN(RDT4_Protocol):
         self.__start_timer()
         # Resends all packets sent but not ACKed
         for packet in self._packets_in_air:
-            self._network.udt_send(packet)
+            self._network.udt_send(packet.get_byte_S())
 
     def __start_timer(self):
         with self._timeout_lock:
@@ -53,11 +53,13 @@ class GoBackN(RDT4_Protocol):
         with self._seq_num_lock:
             packet = Packet(self._next_seq_num, msg)
             self._packets_in_air.append(packet)
-            self._network.udt_send(packet)
+            debug_log(f"SENDER: Sent packet seq {self._next_seq_num}")
+            self._network.udt_send(packet.get_byte_S())
 
             # First start of the timer. Subsequent restarts will be handled by 
             # the main thread.
             if self._base == self._next_seq_num:
+                debug_log(f"SENDER: Started timer (likely first time)")
                 self.__start_timer()
 
             self._next_seq_num += 1
@@ -73,13 +75,17 @@ class GoBackN(RDT4_Protocol):
             # resulting in culmutative ACK behaviour
             packets_acked = packet.seq_num - self._base + 1
             self._base += packets_acked
+            debug_log(f"SENDER: Received ACK for seq {packet.seq_num}")
+            debug_log(f"SENDER: Culmutative ACK for {packets_acked} packets")
 
             # Remove ACKed packets from the from of the "in air" buffer
             self._packets_in_air = self._packets_in_air[packets_acked:]
 
             if self._base == self._next_seq_num:
+                debug_log("SENDER: All packets ACKed, stopped timer")
                 self.__stop_timer()  # We are up-to-date with the data sent
             else:
+                debug_log("SENDER: Restarted timer")
                 self.__start_timer() # Restarts timer
             
             # Releases space in the senders thread window
@@ -176,7 +182,7 @@ if __name__ == '__main__':
 
     sim = RDT4("gbn", args.role, args.server, args.port)
     if args.role == 'client':
-        sim.send('MSG_FROM_CLIENT')
+        sim.send(['MSG_FROM_CLIENT'])
         sleep(2)
         print(sim.receive())
         sim.disconnect()
@@ -184,6 +190,6 @@ if __name__ == '__main__':
     else:
         sleep(1)
         print(sim.receive())
-        sim.send('MSG_FROM_SERVER')
+        sim.send(['MSG_FROM_SERVER'])
         sim.disconnect()
         
