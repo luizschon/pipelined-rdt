@@ -28,6 +28,7 @@ class Packet:
 
     @classmethod
     def from_byte_S(self, byte_S, is_fin=False):
+        print("BYTES: " + byte_S)
         if Packet.corrupt(byte_S):
             raise RuntimeError('Cannot initialize Packet: byte_S is corrupt')
 
@@ -72,7 +73,7 @@ class Packet:
         return False
     
     def is_fin_pack(self):
-        return self.fin == '1'
+        return self.fin
 
 
 class RDT:

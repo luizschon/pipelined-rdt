@@ -20,7 +20,7 @@ class GoBackN(RDT4_Protocol):
     def __init__(self, role_S: str, server_S: str, port: str):
         self._network = Network.NetworkLayer(role_S, server_S, port)
         self._window_size = 5
-        self._timeout = 1
+        self._timeout = 3
         self._recv_buffer = ""
         self._timer_start = 0
 
@@ -48,9 +48,14 @@ class GoBackN(RDT4_Protocol):
             return self._timer_start != 0 and time() > self._timer_start + self._timeout
 
     def __handle_recv_data(self, data: str):
-        packet = Packet.from_byte_S(data)
         # FIXME study what happens if packet is corrupted
-        if Packet.corrupt(data) or not packet.is_ack_pack():
+        if Packet.corrupt(data):
+            debug_log("SENDER: Packet corrupt")
+            return
+        
+        packet = Packet.from_byte_S(data)
+        if not packet.is_ack_pack():
+            debug_log("SENDER: Expected ACK packet")
             return
         
         with self._seq_num_lock:
@@ -102,17 +107,25 @@ class GoBackN(RDT4_Protocol):
             self._next_seq_num = (self._next_seq_num + 1) % self._window_size
 
     def __rtd_receive(self, data: str):
-        packet = Packet.from_byte_S(data)
         # Sends ACK for last received seq to notify that the data recv is wrong.
-        if Packet.corrupt(data) or packet.seq_num != self._expected_seq_num:
+        if Packet.corrupt(data):
+            debug_log("RECVER: Packet corrupt, resending last ACK")
             self._network.udt_send(Packet(self._last_recv_seq_num, ACK).get_byte_S())
+            return
+        packet = Packet.from_byte_S(data)
+        if packet.seq_num != self._expected_seq_num:
+            debug_log(f"RECVER: Expected seq num {self._expected_seq_num}, got {packet.seq_num}, resending last ACK")
+            self._network.udt_send(Packet(self._last_recv_seq_num, ACK).get_byte_S())
+            return
         
         # Adds received data to buffer and sends ACK packet.
         self._recv_buffer += packet.msg_S
+        debug_log(f"RECVER: Sending ACK for seq num {self._expected_seq_num}")
         self._network.udt_send(Packet(self._expected_seq_num, ACK).get_byte_S())
-
+        
         # Sets flag if packet received was the last in the stream
         if packet.is_fin_pack():
+            debug_log("RECVER: Detected FIN flag")
             self._fin_recv = True
             return
 
@@ -136,7 +149,6 @@ class GoBackN(RDT4_Protocol):
             # TODO Bufferize message to fit into packets
             buffer = message
             buf_len = len(buffer)
-            print("buffer len: " + str(buf_len))
             for idx, data in enumerate(buffer):
                 self.__rtd_send(data, idx == buf_len-1)
 
