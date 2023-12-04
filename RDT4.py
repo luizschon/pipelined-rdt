@@ -5,7 +5,6 @@ from abc import ABC, abstractmethod
 from threading import Thread, Semaphore, Lock
 
 ACK  = "1"
-NACK = "0"
 
 class RDT4_Protocol(ABC):
     @abstractmethod
@@ -46,24 +45,6 @@ class GoBackN(RDT4_Protocol):
             # If timer_start is 0, then the timer should be considered stopped
             return self._timer_start != 0 and time_ns() > self._timer_start + self._timeout_ns
 
-    def __rtd_send(self, msg: str) -> None:
-        # Block sender thread from exploding the window size
-        self._data_semph.acquire() 
-
-        with self._seq_num_lock:
-            packet = Packet(self._next_seq_num, msg)
-            self._packets_in_air.append(packet)
-            debug_log(f"SENDER: Sent packet seq {self._next_seq_num}")
-            self._network.udt_send(packet.get_byte_S())
-
-            # First start of the timer. Subsequent restarts will be handled by 
-            # the main thread.
-            if self._base == self._next_seq_num:
-                debug_log(f"SENDER: Started timer (likely first time)")
-                self.__start_timer()
-
-            self._next_seq_num += 1
-
     def __handle_recv_data(self, data: str):
         packet = Packet.from_byte_S(data)
         # FIXME study what happens if packet is corrupted
@@ -91,14 +72,38 @@ class GoBackN(RDT4_Protocol):
             # Releases space in the senders thread window
             self._data_semph.release(packets_acked)
 
-    def __rtd_receive(self) -> bytearray:
-        answer = self._network.udt_receive()
+    def __rtd_send(self, msg: str) -> None:
+        # Block sender thread from exploding the window size
+        self._data_semph.acquire() 
 
-        if answer == '':
-            return None
+        with self._seq_num_lock:
+            packet = Packet(self._next_seq_num, msg)
+            self._packets_in_air.append(packet)
+            debug_log(f"SENDER: Sent packet seq {self._next_seq_num}")
+            self._network.udt_send(packet.get_byte_S())
+
+            # First start of the timer. Subsequent restarts will be handled by 
+            # the main thread.
+            if self._base == self._next_seq_num:
+                debug_log("SENDER: Started timer (likely first time)")
+                self.__start_timer()
+
+            self._next_seq_num += 1
+
+    def __rtd_receive(self, data: str):
+        packet = Packet.from_byte_S(data)
+        # Sends ACK for last received seq to notify that the data recv is wrong.
+        if Packet.corrupt(data) or packet.seq_num != self._expected_seq_num:
+            self._network.udt_send(Packet(self._last_recv_seq_num, ACK).get_byte_S())
+        
+        # Adds received data to buffer and sends ACK packet.
+        self._recv_buffer += packet.msg_S
+        self._network.udt_send(Packet(self._expected_seq_num, ACK).get_byte_S())
+        self._last_recv_seq_num = self._expected_seq_num
+        self._expected_seq_num += 1
         
     def send(self, msg):
-        # Initialize control variables.
+        # Initialize control and state variables.
         self._base = 0
         self._next_seq_num = 0
         self._packets_in_air = []
@@ -127,7 +132,7 @@ class GoBackN(RDT4_Protocol):
         # udt_receive().
         while True:
             with self._seq_num_lock:
-                # Exit loop if sender thread sent all data and last ACK was received
+                # Exit loop if sender thread sent all data and last ACK was received.
                 if not sender_t.is_alive() and self._base == self._next_seq_num:
                     break 
 
@@ -141,7 +146,20 @@ class GoBackN(RDT4_Protocol):
         sender_t.join()
 
     def receive(self):
+        # Initialize control and state variables.
         self._recv_buffer = ""
+        self._expected_seq_num = 0
+        self._last_recv_seq_num = 0
+
+        # Continuously pool the data received, since the simulated lower layer
+        # (Network Layers) does not notify when data reaches us.
+        # TODO Define when receivers job is ended so that the connection can be
+        # restarted
+        while True:
+            data_recv = self._network.udt_receive()
+            if data_recv != "":
+                self.__rtd_receive(data_recv)
+
 
 
 class SelectiveRepeat(RDT4_Protocol):
