@@ -65,7 +65,7 @@ class GoBackN(RDT4_Protocol):
     def __handle_recv_data(self, data: str):
         packet = Packet.from_byte_S(data)
         # FIXME study what happens if packet is corrupted
-        if packet.corrupt() or not packet.is_ack_pack():
+        if Packet.corrupt(data) or not packet.is_ack_pack():
             return
         
         with self._seq_num_lock:
