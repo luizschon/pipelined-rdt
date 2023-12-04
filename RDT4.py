@@ -28,6 +28,7 @@ def getPackets(data_stream: str) -> [Packet]:
             break
 
         parsed_packets.append(Packet.from_byte_S(packet_stream))
+        counter += 1
 
     debug_log(f"getPackets: Found {len(parsed_packets)} packets")
     return parsed_packets
@@ -50,7 +51,7 @@ class RDT4_Protocol(ABC):
 class GoBackN(RDT4_Protocol):
     def __init__(self, role_S: str, server_S: str, port: str):
         self._network = Network.NetworkLayer(role_S, server_S, port)
-        self._window_size = 5
+        self._window_size = 10
         self._timeout = 3
         self._recv_buffer = ""
         self._timer_start = 0
@@ -91,10 +92,21 @@ class GoBackN(RDT4_Protocol):
                 # Verify how many packets were ACKed.
                 # FIXME Maybe this can be ambiguous, but checking the next seq num
                 # should help a bit. But we should be fine
-                if self._base > p.seq_num:
-                    packets_acked = self._window_size - self._base + p.seq_num
-                else:
+                debug_log(f"WINDOW: {self._window_size}")
+                debug_log(f"BASE: {self._base}")
+                debug_log(f"SEQ: {p.seq_num}")
+
+                def to_the_left_of_base():
+                    return self._base - p.seq_num == 1 or p.seq_num - self._base == self._window_size - 1
+
+                # Case the whole window has been sent and seq_num is one position
+                # to the left of base, then its a retransmission
+                if len(self._packets_in_air) == self._window_size and to_the_left_of_base():
+                    packets_acked = 0
+                elif p.seq_num >= self._base:
                     packets_acked = p.seq_num - self._base + 1
+                elif p.seq_num < self._base:
+                    packets_acked = self._window_size - self._base + p.seq_num + 1
 
                 # "Move" sliding window to the seq number of the ACK packet
                 # resulting in cumulative ACK behaviour
@@ -105,15 +117,16 @@ class GoBackN(RDT4_Protocol):
                 # Remove ACKed packets from the from of the "in air" buffer
                 self._packets_in_air = self._packets_in_air[packets_acked:]
 
-                if self._base == self._next_seq_num:
-                    debug_log("SENDER: All packets ACKed, stopped timer")
+                if self._packets_in_air is None:
+                    debug_log("SENDER: All in-air packets ACKed, stopped timer")
                     self.__stop_timer()  # We are up-to-date with the data sent
-                else:
+                elif packets_acked > 0:
                     debug_log("SENDER: Restarted timer")
                     self.__start_timer() # Restarts timer
                 
                 # Releases space in the senders thread window
-                self._data_semph.release(packets_acked)
+                if packets_acked > 0:
+                    self._data_semph.release(packets_acked)
 
     def __rtd_send(self, msg: str, is_last=False) -> None:
         # Block sender thread from exploding the window size
@@ -132,7 +145,7 @@ class GoBackN(RDT4_Protocol):
             # First start of the timer. Subsequent restarts will be handled by 
             # the main thread.
             if self._base == self._next_seq_num:
-                debug_log("SENDER: Started timer (likely first time)")
+                debug_log("SENDER: Started timer")
                 self.__start_timer()
 
             self._next_seq_num = (self._next_seq_num + 1) % self._window_size
@@ -151,6 +164,8 @@ class GoBackN(RDT4_Protocol):
                 debug_log(f"RECVER: Expected seq num {self._expected_seq_num}, got {p.seq_num}, resending last ACK")
                 break
 
+            self._recv_first_packet = True
+
             # Sets flag if packet received was the last in the stream
             if p.is_fin_pack():
                 debug_log("RECVER: Detected FIN flag")
@@ -161,8 +176,9 @@ class GoBackN(RDT4_Protocol):
             self._last_recv_seq_num = self._expected_seq_num
             self._expected_seq_num = (self._expected_seq_num + 1) % self._window_size
 
-        debug_log(f"RECVER: Sending ACK for seq num {self._last_recv_seq_num}")
-        self._network.udt_send(Packet(self._last_recv_seq_num, ACK).get_byte_S())
+        if self._recv_first_packet:
+            debug_log(f"RECVER: Sending ACK for seq num {self._last_recv_seq_num}")
+            self._network.udt_send(Packet(self._last_recv_seq_num, ACK).get_byte_S())
        
     def send(self, msg):
         # Initialize control and state variables.
@@ -195,7 +211,7 @@ class GoBackN(RDT4_Protocol):
         while True:
             with self._seq_num_lock:
                 # Exit loop if sender thread sent all data and last ACK was received.
-                if not sender_t.is_alive() and self._base == self._next_seq_num:
+                if not sender_t.is_alive() and len(self._packets_in_air) == 0:
                     break 
 
             data_recv = self._network.udt_receive()
@@ -218,6 +234,7 @@ class GoBackN(RDT4_Protocol):
         self._recv_buffer = ""
         self._expected_seq_num = 0
         self._last_recv_seq_num = 0
+        self._recv_first_packet = False
         self._fin_recv = False
 
         # Continuously pool the data received, since the simulated lower layer
@@ -274,14 +291,14 @@ if __name__ == '__main__':
 
     sim = RDT4(GoBackN, args.role, args.server, args.port)
     if args.role == 'client':
-        sim.send(['MSG_FROM_CLIENT'])
+        sim.send(['MSG_FROM_CLIENT', 'MSG_1', 'MSG_2', 'MSG_3', 'MSG_4', 'MSG_5', 'MSG_6', 'MSG_7', 'MSG_1', 'MSG_2', 'MSG_3', 'MSG_4', 'MSG_5', 'MSG_6', 'MSG_7'])
         sleep(2)
         print(sim.receive())
         sim.disconnect()
 
     else:
-        sleep(1)
         print(sim.receive())
-        sim.send(['MSG_FROM_SERVER'])
+        sleep(1)
+        sim.send(['MSG_FROM_SERVER', 'MSG_1', 'MSG_2', 'MSG_3', 'MSG_4', 'MSG_5', 'MSG_6', 'MSG_7', 'MSG_1', 'MSG_2', 'MSG_3', 'MSG_4', 'MSG_5', 'MSG_6', 'MSG_7'])
         sim.disconnect()
         
