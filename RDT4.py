@@ -28,7 +28,10 @@ class GoBackN(RDT4_Protocol):
         self._network.disconnect()
 
     def __handle_timeout(self):
-        pass
+        self.__start_timer()
+        # Resends all packets sent but not ACKed
+        for packet in self._packets_in_air:
+            self._network.udt_send(packet)
 
     def __start_timer(self):
         with self._timeout_lock:
@@ -52,6 +55,8 @@ class GoBackN(RDT4_Protocol):
             self._packets_in_air.append(packet)
             self._network.udt_send(packet)
 
+            # First start of the timer. Subsequent restarts will be handled by 
+            # the main thread.
             if self._base == self._next_seq_num:
                 self.__start_timer()
 
