@@ -52,7 +52,7 @@ class GoBackN(RDT4_Protocol):
     def __init__(self, role_S: str, server_S: str, port: str):
         self._network = Network.NetworkLayer(role_S, server_S, port)
         self._window_size = 10
-        self._timeout = 3
+        self._timeout = 1
         self._recv_buffer = ""
         self._timer_start = 0
 
@@ -101,7 +101,7 @@ class GoBackN(RDT4_Protocol):
 
                 # Case the whole window has been sent and seq_num is one position
                 # to the left of base, then its a retransmission
-                if len(self._packets_in_air) == self._window_size and to_the_left_of_base():
+                if p.seq_num == self._last_seq_num:
                     packets_acked = 0
                 elif p.seq_num >= self._base:
                     packets_acked = p.seq_num - self._base + 1
@@ -111,6 +111,7 @@ class GoBackN(RDT4_Protocol):
                 # "Move" sliding window to the seq number of the ACK packet
                 # resulting in cumulative ACK behaviour
                 self._base += packets_acked % self._window_size
+                self._last_seq_num = p.seq_num
                 debug_log(f"SENDER: Received ACK for seq {p.seq_num}")
                 debug_log(f"SENDER: Cumulative ACK for {packets_acked} packets")
 
@@ -184,6 +185,7 @@ class GoBackN(RDT4_Protocol):
         # Initialize control and state variables.
         self._base = 0
         self._next_seq_num = 0
+        self._last_seq_num = -1
         self._packets_in_air = []
         # Initialize semaphore used to synchronize data being sent.
         self._data_semph = Semaphore(self._window_size)
@@ -292,7 +294,7 @@ if __name__ == '__main__':
     sim = RDT4(GoBackN, args.role, args.server, args.port)
     if args.role == 'client':
         sim.send(['MSG_FROM_CLIENT', 'MSG_1', 'MSG_2', 'MSG_3', 'MSG_4', 'MSG_5', 'MSG_6', 'MSG_7', 'MSG_1', 'MSG_2', 'MSG_3', 'MSG_4', 'MSG_5', 'MSG_6', 'MSG_7'])
-        sleep(2)
+        sleep(1)
         print(sim.receive())
         sim.disconnect()
 
