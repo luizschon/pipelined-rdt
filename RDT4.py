@@ -22,7 +22,7 @@ class GoBackN(RDT4_Protocol):
         self._network = Network.NetworkLayer(role_S, server_S, port)
         self._window_size = 5
         self._timeout_ns = 300_000_000 # 300 milliseconds
-        self._buffer = bytearray()
+        self._recv_buffer = ""
 
     def disconnect(self):
         self._network.disconnect()
@@ -49,7 +49,7 @@ class GoBackN(RDT4_Protocol):
 
         with self._seq_num_lock:
             packet = Packet(self._next_seq_num, msg)
-            self._packets_sent.append(packet)
+            self._packets_in_air.append(packet)
             self._network.udt_send(packet)
 
             if self._base == self._next_seq_num:
@@ -57,8 +57,28 @@ class GoBackN(RDT4_Protocol):
 
             self._next_seq_num += 1
 
-    def __handle_recv_data(self):
-        pass
+    def __handle_recv_data(self, data: str):
+        packet = Packet.from_byte_S(data)
+        # FIXME study what happens if packet is corrupted
+        if packet.corrupt() or not packet.is_ack_pack():
+            return
+        
+        with self._seq_num_lock:
+            # "Move" sliding window to the seq number of the ACK packet
+            # resulting in culmutative ACK behaviour
+            packets_acked = packet.seq_num - self._base + 1
+            self._base += packets_acked
+
+            # Remove ACKed packets from the from of the "in air" buffer
+            self._packets_in_air = self._packets_in_air[packets_acked:]
+
+            if self._base == self._next_seq_num:
+                self.__stop_timer()  # We are up-to-date with the data sent
+            else:
+                self.__start_timer() # Restarts timer
+            
+            # Releases space in the senders thread window
+            self._data_semph.release(packets_acked)
 
     def __rtd_receive(self) -> bytearray:
         answer = self._network.udt_receive()
@@ -70,7 +90,7 @@ class GoBackN(RDT4_Protocol):
         # Initialize control variables.
         self._base = 0
         self._next_seq_num = 0
-        self._packets_sent = list()
+        self._packets_in_air = []
         # Initialize semaphore used to synchronize data being sent.
         self._data_semph = Semaphore(self._window_size)
         # Initialize lock for handling the timeout and seq number control, since
@@ -80,10 +100,8 @@ class GoBackN(RDT4_Protocol):
 
         # Initialize sender thread
         def sender_task(message):
-            # Bufferize message to fit into packets
-            # TODO
+            # TODO Bufferize message to fit into packets
             buffer = message
-
             for data in buffer:
                 self.__rtd_send(data)
 
@@ -102,17 +120,17 @@ class GoBackN(RDT4_Protocol):
                 if not sender_t.is_alive() and self._base == self._next_seq_num:
                     break 
 
-            if self._network.udt_receive() != "":
-                self.__handle_recv_data()
+            data_recv = self._network.udt_receive()
+            if data_recv != "":
+                self.__handle_recv_data(data_recv)
 
             if self.__timer_expired():
                 self.__handle_timeout()
 
         sender_t.join()
 
-
     def receive(self):
-        pass
+        self._recv_buffer = ""
 
 
 class SelectiveRepeat(RDT4_Protocol):
