@@ -86,16 +86,18 @@ class GoBackN(RDT4_Protocol):
             # Releases space in the senders thread window
             self._data_semph.release(packets_acked)
 
-    def __rtd_send(self, msg: str, is_last: bool) -> None:
+    def __rtd_send(self, msg: str, is_last=False) -> None:
         # Block sender thread from exploding the window size
         self._data_semph.acquire() 
 
         with self._seq_num_lock:
             packet = Packet(self._next_seq_num, msg, is_last)
             self._packets_in_air.append(packet)
+
             debug_log(f"SENDER: Sent packet seq {self._next_seq_num}")
             if is_last:
                 debug_log(f"SENDER: LAST PACKET")
+
             self._network.udt_send(packet.get_byte_S())
 
             # First start of the timer. Subsequent restarts will be handled by 
@@ -148,9 +150,10 @@ class GoBackN(RDT4_Protocol):
         def sender_task(message: list):
             # TODO Bufferize message to fit into packets
             buffer = message
-            buf_len = len(buffer)
-            for idx, data in enumerate(buffer):
-                self.__rtd_send(data, idx == buf_len-1)
+            for data in buffer:
+                self.__rtd_send(data)
+            # Sends empty FIN packet to finalize data transmission
+            self.__rtd_send("", is_last=True)
 
         sender_t = Thread(target=sender_task, args=[msg])
         # Sender thread will send the packets in the background and synchronize
