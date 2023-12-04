@@ -9,7 +9,7 @@ import RDT
 ## Provides an abstraction for the network layer
 class NetworkLayer:
     # configuration parameters
-    prob_pkt_loss = 0
+    prob_pkt_loss = 0.3
     prob_byte_corr = 0
     prob_pkt_reorder = 0
 
@@ -54,7 +54,7 @@ class NetworkLayer:
 
     def udt_send(self, msg_S):
         # return without sending if the packet is being dropped
-        if random.random() < self.prob_pkt_loss:
+        if random.random() < self.prob_pkt_loss and not RDT.Packet.from_byte_S(msg_S).is_fin_pack():
             return
         # corrupt a packet
         if random.random() < self.prob_byte_corr:
