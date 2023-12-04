@@ -52,12 +52,19 @@ class GoBackN(RDT4_Protocol):
             return
         
         with self._seq_num_lock:
+            # Verify how many packets were ACKed.
+            # FIXME Maybe this can be ambiguous, but checking the next seq num
+            # should help a bit. But we should be fine
+            if self._base > packet.seq_num:
+                packets_acked = self._window_size - self._base + packet.seq_num
+            else:
+                packets_acked = packet.seq_num - self._base + 1
+
             # "Move" sliding window to the seq number of the ACK packet
-            # resulting in culmutative ACK behaviour
-            packets_acked = packet.seq_num - self._base + 1
-            self._base += packets_acked
+            # resulting in cumulative ACK behaviour
+            self._base += packets_acked % self._window_size
             debug_log(f"SENDER: Received ACK for seq {packet.seq_num}")
-            debug_log(f"SENDER: Culmutative ACK for {packets_acked} packets")
+            debug_log(f"SENDER: Cumulative ACK for {packets_acked} packets")
 
             # Remove ACKed packets from the from of the "in air" buffer
             self._packets_in_air = self._packets_in_air[packets_acked:]
@@ -88,7 +95,7 @@ class GoBackN(RDT4_Protocol):
                 debug_log("SENDER: Started timer (likely first time)")
                 self.__start_timer()
 
-            self._next_seq_num += 1
+            self._next_seq_num = (self._next_seq_num + 1) % self._window_size
 
     def __rtd_receive(self, data: str):
         packet = Packet.from_byte_S(data)
@@ -100,7 +107,7 @@ class GoBackN(RDT4_Protocol):
         self._recv_buffer += packet.msg_S
         self._network.udt_send(Packet(self._expected_seq_num, ACK).get_byte_S())
         self._last_recv_seq_num = self._expected_seq_num
-        self._expected_seq_num += 1
+        self._expected_seq_num = (self._expected_seq_num + 1) % self._window_size
         
     def send(self, msg):
         # Initialize control and state variables.
