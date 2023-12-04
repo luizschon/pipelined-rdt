@@ -1,6 +1,6 @@
 import argparse, Network
 from RDT import Packet, debug_log  # For Packet class
-from time import sleep, time_ns
+from time import sleep, time
 from abc import ABC, abstractmethod
 from threading import Thread, Semaphore, Lock
 
@@ -20,13 +20,15 @@ class GoBackN(RDT4_Protocol):
     def __init__(self, role_S: str, server_S: str, port: str):
         self._network = Network.NetworkLayer(role_S, server_S, port)
         self._window_size = 5
-        self._timeout_ns = 300_000_000 # 300 milliseconds
+        self._timeout = 1
         self._recv_buffer = ""
+        self._timer_start = 0
 
     def disconnect(self):
         self._network.disconnect()
 
     def __handle_timeout(self):
+        debug_log(f"SENDER: TIMEOUT, going back {len(self._packets_in_air)} packets")
         self.__start_timer()
         # Resends all packets sent but not ACKed
         for packet in self._packets_in_air:
@@ -34,7 +36,7 @@ class GoBackN(RDT4_Protocol):
 
     def __start_timer(self):
         with self._timeout_lock:
-            self._timer_start = time_ns()
+            self._timer_start = time()
 
     def __stop_timer(self):
         with self._timeout_lock:
@@ -43,7 +45,7 @@ class GoBackN(RDT4_Protocol):
     def __timer_expired(self) -> bool:
         with self._timeout_lock:
             # If timer_start is 0, then the timer should be considered stopped
-            return self._timer_start != 0 and time_ns() > self._timer_start + self._timeout_ns
+            return self._timer_start != 0 and time() > self._timer_start + self._timeout
 
     def __handle_recv_data(self, data: str):
         packet = Packet.from_byte_S(data)
@@ -134,13 +136,14 @@ class GoBackN(RDT4_Protocol):
             # TODO Bufferize message to fit into packets
             buffer = message
             buf_len = len(buffer)
-            for idx, data in buffer.enumerate():
+            print("buffer len: " + str(buf_len))
+            for idx, data in enumerate(buffer):
                 self.__rtd_send(data, idx == buf_len-1)
 
         sender_t = Thread(target=sender_task, args=[msg])
         # Sender thread will send the packets in the background and synchronize
         # the data by itself.
-        sender_t.run() 
+        sender_t.start() 
 
         # Observes the data being received and the timer.
         # Since in this simulation the layer below (Network Layer) does not
@@ -159,6 +162,7 @@ class GoBackN(RDT4_Protocol):
             if self.__timer_expired():
                 self.__handle_timeout()
 
+        debug_log("SENDER: FINISHED")
         sender_t.join()
 
     def receive(self) -> str:
@@ -175,6 +179,7 @@ class GoBackN(RDT4_Protocol):
         while not self._fin_recv:
             data_recv = self._network.udt_receive()
             if data_recv != "":
+                print("DATA_RECV: " + data_recv)
                 self.__rtd_receive(data_recv)
 
         return self._recv_buffer
@@ -210,13 +215,13 @@ class RDT4:
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='RDT$ implementation.')
+    parser = argparse.ArgumentParser(description='RDT4 implementation.')
     parser.add_argument('role', help='Role is either client or server.', choices=['client', 'server'])
     parser.add_argument('server', help='Server.')
     parser.add_argument('port', help='Port.', type=int)
     args = parser.parse_args()
 
-    sim = RDT4("gbn", args.role, args.server, args.port)
+    sim = RDT4(GoBackN, args.role, args.server, args.port)
     if args.role == 'client':
         sim.send(['MSG_FROM_CLIENT'])
         sleep(2)
