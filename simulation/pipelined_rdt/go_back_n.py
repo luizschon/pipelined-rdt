@@ -9,18 +9,19 @@ from Network import NetworkLayer
 from RDT import Packet, debug_log
 
 class GoBackN(PipeRDT_Protocol):
-    def __init__(self, role_S: str, server_S: str, port: str):
-        self._network = NetworkLayer(role_S, server_S, port)
+    def __init__(self, role: str, server: str, port: str):
+        self._network = NetworkLayer(role, server, port)
         self._window_size = 10
         self._timeout = 1
         self._recv_buffer = ""
         self._timer_start = 0
+        self._role = role
 
     def disconnect(self):
         self._network.disconnect()
 
     def __handle_timeout(self):
-        debug_log(f"SENDER: TIMEOUT, going back {len(self._packets_in_air)} packets")
+        debug_log(f"[{self._role}] SENDER: TIMEOUT, going back {len(self._packets_in_air)} packets")
         self.__start_timer()
         # Resends all packets sent but not ACKed
         for packet in self._packets_in_air:
@@ -45,7 +46,7 @@ class GoBackN(PipeRDT_Protocol):
 
         for p in packets:
             if not p.is_ack_pack():
-                debug_log("SENDER: Expected ACK packet")
+                debug_log(f"[{self._role}] SENDER: Expected ACK packet")
                 return
             
             with self._seq_num_lock:
@@ -72,17 +73,17 @@ class GoBackN(PipeRDT_Protocol):
                 # resulting in cumulative ACK behaviour
                 self._base += packets_acked % self._window_size
                 self._last_seq_num = p.seq_num
-                debug_log(f"SENDER: Received ACK for seq {p.seq_num}")
-                debug_log(f"SENDER: Cumulative ACK for {packets_acked} packets")
+                debug_log(f"[{self._role}] SENDER: Received ACK for seq {p.seq_num}")
+                debug_log(f"[{self._role}] SENDER: Cumulative ACK for {packets_acked} packets")
 
                 # Remove ACKed packets from the from of the "in air" buffer
                 self._packets_in_air = self._packets_in_air[packets_acked:]
 
                 if self._packets_in_air is None:
-                    debug_log("SENDER: All in-air packets ACKed, stopped timer")
+                    debug_log(f"[{self._role}] SENDER: All in-air packets ACKed, stopped timer")
                     self.__stop_timer()  # We are up-to-date with the data sent
                 elif packets_acked > 0:
-                    debug_log("SENDER: Restarted timer")
+                    debug_log(f"[{self._role}] SENDER: Restarted timer")
                     self.__start_timer() # Restarts timer
                 
                 # Releases space in the senders thread window
@@ -97,16 +98,16 @@ class GoBackN(PipeRDT_Protocol):
             packet = Packet(self._next_seq_num, msg, is_last)
             self._packets_in_air.append(packet)
 
-            debug_log(f"SENDER: Sent packet seq {self._next_seq_num}")
+            debug_log(f"[{self._role}] SENDER: Sent packet seq {self._next_seq_num}")
             if is_last:
-                debug_log(f"SENDER: LAST PACKET")
+                debug_log(f"[{self._role}] SENDER: LAST PACKET")
 
             self._network.udt_send(packet.get_byte_S())
 
             # First start of the timer. Subsequent restarts will be handled by 
             # the main thread.
             if self._base == self._next_seq_num:
-                debug_log("SENDER: Started timer")
+                debug_log(f"[{self._role}] SENDER: Started timer")
                 self.__start_timer()
 
             self._next_seq_num = (self._next_seq_num + 1) % self._window_size
@@ -118,18 +119,18 @@ class GoBackN(PipeRDT_Protocol):
         packets = getPackets(data)
 
         if len(packets) == 0:
-            debug_log(f"RECVER: No valid packets parsed (corrupted), resending last ACK")
+            debug_log(f"[{self._role}] RECVER: No valid packets parsed (corrupted), resending last ACK")
 
         for p in packets:
             if p.seq_num != self._expected_seq_num:
-                debug_log(f"RECVER: Expected seq num {self._expected_seq_num}, got {p.seq_num}, resending last ACK")
+                debug_log(f"[{self._role}] RECVER: Expected seq num {self._expected_seq_num}, got {p.seq_num}, resending last ACK")
                 break
 
             self._recv_first_packet = True
 
             # Sets flag if packet received was the last in the stream
             if p.is_fin_pack():
-                debug_log("RECVER: Detected FIN flag")
+                debug_log(f"[{self._role}] RECVER: Detected FIN flag")
                 self._fin_recv = True
 
             # Adds received data to buffer and sends ACK packet.
@@ -138,7 +139,7 @@ class GoBackN(PipeRDT_Protocol):
             self._expected_seq_num = (self._expected_seq_num + 1) % self._window_size
 
         if self._recv_first_packet:
-            debug_log(f"RECVER: Sending ACK for seq num {self._last_recv_seq_num}")
+            debug_log(f"[{self._role}] RECVER: Sending ACK for seq num {self._last_recv_seq_num}")
             self._network.udt_send(Packet(self._last_recv_seq_num, ACK).get_byte_S())
        
     def send(self, msg):
@@ -188,7 +189,7 @@ class GoBackN(PipeRDT_Protocol):
         # The mechanism takes inspiration in the TCP flow control
         # TODO
 
-        debug_log("SENDER: FINISHED")
+        debug_log(f"[{self._role}] SENDER: FINISHED")
         sender_t.join()
 
     def receive(self) -> str:
