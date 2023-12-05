@@ -18,6 +18,7 @@ class GoBackN(PipeRDT_Protocol):
         self._role = role
 
     def disconnect(self):
+        debug_log(f"[{self._role}] Disconnecting...")
         self._network.disconnect()
 
     def __handle_timeout(self):
