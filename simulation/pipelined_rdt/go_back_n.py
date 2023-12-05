@@ -1,56 +1,16 @@
-import argparse, Network
-from RDT import Packet, debug_log  # For Packet class
-from time import sleep, time
-from abc import ABC, abstractmethod
+import argparse, sys
 from threading import Thread, Semaphore, Lock
+from time import time, sleep
+from module import PipeRDT_Protocol, getPackets, ACK
 
-ACK = "1"
+path_slip = __file__.split('/')
+sys.path.append('/'.join(path_slip[0:len(path_slip)-2]))
+from Network import NetworkLayer
+from RDT import Packet, debug_log
 
-def getPackets(data_stream: str) -> [Packet]:
-    parsed_packets = []
-    counter = 0
-
-    while data_stream != "":
-        packet_len = int(data_stream[0:Packet.length_S_length])    
-
-        # Sanity check to guarantee that the remaining data is greater or equal
-        # than the parsed packet length, otherwise, we would have a runtime error
-        if len(data_stream) < packet_len:
-            return parsed_packets
-
-        packet_stream = data_stream[0:packet_len]
-        debug_log(f"getPackets P{counter+1}: {packet_stream}")
-        data_stream = data_stream[packet_len:]
-
-        # If one of the packets is corrupt, stop execution and return parsed packets
-        if Packet.corrupt(packet_stream):
-            debug_log("getPackets: Found corrupt packet in data stream, aborting parsing...")
-            break
-
-        parsed_packets.append(Packet.from_byte_S(packet_stream))
-        counter += 1
-
-    debug_log(f"getPackets: Found {len(parsed_packets)} packets")
-    return parsed_packets
-    
-
-class RDT4_Protocol(ABC):
-    @abstractmethod
-    def disconnect(self) -> None:
-        pass
-
-    @abstractmethod
-    def send(self, msg: str) -> None:
-        pass
-
-    @abstractmethod
-    def receive(self) -> str:
-        pass
-
-
-class GoBackN(RDT4_Protocol):
+class GoBackN(PipeRDT_Protocol):
     def __init__(self, role_S: str, server_S: str, port: str):
-        self._network = Network.NetworkLayer(role_S, server_S, port)
+        self._network = NetworkLayer(role_S, server_S, port)
         self._window_size = 10
         self._timeout = 1
         self._recv_buffer = ""
@@ -252,38 +212,6 @@ class GoBackN(RDT4_Protocol):
         return self._recv_buffer
 
 
-class SelectiveRepeat(RDT4_Protocol):
-    def __init__(self, role_S, server_S, port):
-        self._network = Network.NetworkLayer(role_S, server_S, port)
-        self._window_size = 5
-        self._timeout = 3
-        self._seq_num = 0
-        self._buffer = bytearray()
-
-    def disconnect(self):
-        self._network.disconnect()
-
-    def send(self, msg: str) -> None:
-        pass
-
-    def receive(self) -> bytearray:
-        pass
-
-
-class RDT4:
-    def __init__(self, protocol: RDT4_Protocol, role: str, server: str, port: str):
-        self._protocol = protocol(role, server, port)
-
-    def disconnect(self):
-        self._protocol.disconnect()
-
-    def send(self, msg):
-        self._protocol.send(msg)
-
-    def receive(self):
-        return self._protocol.receive()
-
-
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='RDT4 implementation.')
     parser.add_argument('role', help='Role is either client or server.', choices=['client', 'server'])
@@ -291,7 +219,7 @@ if __name__ == '__main__':
     parser.add_argument('port', help='Port.', type=int)
     args = parser.parse_args()
 
-    sim = RDT4(GoBackN, args.role, args.server, args.port)
+    sim = GoBackN(args.role, args.server, args.port)
     if args.role == 'client':
         sim.send(['MSG_FROM_CLIENT', 'MSG_1', 'MSG_2', 'MSG_3', 'MSG_4', 'MSG_5', 'MSG_6', 'MSG_7', 'MSG_1', 'MSG_2', 'MSG_3', 'MSG_4', 'MSG_5', 'MSG_6', 'MSG_7'])
         sleep(1)

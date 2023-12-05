@@ -1,9 +1,10 @@
-import argparse, RDT4
-from RDT4 import RDT4, GoBackN, SelectiveRepeat, RDT4_Protocol
-import time
+import argparse, time
+from module import PipeRDT, PipeRDT_Protocol
+from go_back_n import GoBackN
+from selective_repeat import SelectiveRepeat
 
 class RDT4_Server:
-    def __init__(self, protocol: RDT4_Protocol, port: str) -> None:
+    def __init__(self, protocol: PipeRDT_Protocol, port: str) -> None:
         pass
 
     def send_data(self, data):
