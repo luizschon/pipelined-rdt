@@ -116,7 +116,7 @@ class Sender:
             # Get packets that are not corrupt and receive them
             pkts = getPackets(data_recv)
             for p in pkts:
-                self.recv(p)
+                self._recv(p)
 
         debug_log('Stopped Selective Repeat sender!')
     
