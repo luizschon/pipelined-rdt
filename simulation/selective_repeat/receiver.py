@@ -1,5 +1,5 @@
 import sys, argparse
-from threading import Lock, Timer
+from threading import Lock
 from typing import Callable
 
 # Hacky fix to import from parent folder
@@ -18,14 +18,13 @@ class Receiver:
     control_lock = Lock()   # Lock for control variables
 
 
-    def __init__(self, conn: NetworkLayer, recv_callback: Callable[[str], any], ws=10, timeout_sec=2):
+    def __init__(self, conn: NetworkLayer, recv_callback: Callable[[str], any], ws=10):
         self.conn = conn
         self.ws = ws
         self.recv_callback = recv_callback
-        self.timeout_sec = timeout_sec
 
 
-    # Main method of the sender, should be only called once before the stop
+    # Main method of the receiver, should be only called once before the stop
     # method is called
     def run(self):
         with self.status_lock:
@@ -37,9 +36,6 @@ class Receiver:
         debug_log('Started Selective Repeat receiver!')
         debug_log(f'WINDOW SIZE: {self.ws}\n')
 
-        # Create asynchronous timers for each sequence number
-        self.timers = [Timer(self.timeout_sec, self._handle_timeout, args=[seq]) for seq in range(self.ws)]
-
         while self.running:
             data_recv = self.conn.udt_receive()
             if data_recv == '':
@@ -47,7 +43,7 @@ class Receiver:
             # Get packets that are not corrupt and receive them
             pkts = getPackets(data_recv)
             for p in pkts:
-                self.recv(p)
+                pass
 
         debug_log('Stopped Selective Repeat receiver!')
     
@@ -58,14 +54,6 @@ class Receiver:
                 print('ERROR: Receiver not running, can\'t stop')
                 return
             self.running = False
-
-        # Stop all timers
-        for timer in self.timers:
-            timer.cancel()
-        
-        self.base = 0
-        self.next_seq = 0
-        self.pkts_in_air = dict()
 
 
 if __name__ == '__main__':
