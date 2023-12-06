@@ -17,12 +17,10 @@ class Receiver:
     status_lock = Lock()    # Lock for running status
     control_lock = Lock()   # Lock for control variables
 
-
     def __init__(self, conn: NetworkLayer, recv_callback: Callable[[str], any], ws=10):
         self.conn = conn
         self.ws = ws
         self.recv_callback = recv_callback
-
 
     # Main method of the receiver, should be only called once before the stop
     # method is called
@@ -47,7 +45,6 @@ class Receiver:
 
         debug_log('Stopped Selective Repeat receiver!')
     
-
     def stop(self):
         with self.status_lock:
             if not self.running:

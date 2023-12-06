@@ -18,12 +18,10 @@ class Sender:
     status_lock = Lock()    # Lock for running status
     control_lock = Lock()   # Lock for control variables
 
-
     def __init__(self, conn: NetworkLayer, ws=10, timeout_sec=2):
         self.conn = conn
         self.ws = ws
         self.timeout_sec = timeout_sec
-
 
     # Timeout handler for each packet in-air, called by Timer theading objects
     def _handle_timeout(self, seq: int):
@@ -39,7 +37,6 @@ class Sender:
             debug_log(f'            DATA:    {pkt.get_byte_S()}')
             self.conn.udt_send(pkt.get_byte_S())
             self.timers[seq].start()    # No need to cancel timer, since it triggered
-
 
     # Method called from layer above (server or client) to send data through
     # reliable tunnel 
@@ -67,7 +64,6 @@ class Sender:
 
             self.next_seq = (self.next_seq + 1) % self.ws
 
-
     # Internal function that handles data being received. Calls data recv
     # callback specified by user (server or client)
     def _recv(self, pkt: Packet):
@@ -92,7 +88,6 @@ class Sender:
             self.pkts_in_air.remove(seq)
             self.base = self.pkts_in_air.keys()[0]
             debug_log(f'[sr sender]: Shifted base: {self.base}')
-
 
     # Main method of the sender, should be only called once before the stop
     # method is called
@@ -120,7 +115,6 @@ class Sender:
 
         debug_log('Stopped Selective Repeat sender!')
     
-
     def stop(self):
         with self.status_lock:
             if not self.running:
