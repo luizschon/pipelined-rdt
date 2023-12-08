@@ -7,24 +7,63 @@ path_slip = __file__.split('/')
 sys.path.append('/'.join(path_slip[0:len(path_slip)-2]))
 
 from Network import NetworkLayer
-from RDT import Packet, getPackets, debug_log
+from RDT import Packet, getPackets, debug_log, ACK
 
 class Receiver:
     # State control variables
-    recv_buffer = ['']*10   # Buffer that holds out-of-order packets received
-    expected_ack = 0
+    base = 0
+    next_base = 0
     running = False
     status_lock = Lock()    # Lock for running status
     control_lock = Lock()   # Lock for control variables
 
-    def __init__(self, conn: NetworkLayer, recv_callback: Callable[[str], any], ws=10):
+    def __init__(self, conn: NetworkLayer, ws=10):
         self.conn = conn
         self.ws = ws
-        self.recv_callback = recv_callback
+        self.recv_buffer = ['']*(ws) 
+
+    def _recv(self, pkt: Packet, recv_callback: Callable[[str], any]):
+        seq = pkt.seq_num
+        msg = pkt.msg_S
+        usable_len = int(self.ws/2)
+
+        debug_log(f'[sr recver]: Received pkt seq: {seq}')
+        debug_log(f'[sr recver]: Current base: {self.base}')
+
+        # If seq number is out of the expected waiting range, send repeated ACK.
+        # We trust that the sender is correctly synchronized with us, 
+        if (seq - self.base) % self.ws + 1 > usable_len:
+            debug_log(f'[sr recver]: Pkt outside range, resending ACK...')
+            self.conn.udt_send(Packet(seq, ACK))
+            return
+
+        # If seq number received is equal to the base, update the base of the 
+        # receiving window, otherwise, save packet in the out-of-order buffer.
+        if seq == self.base:
+            counter = 0
+            while self.recv_buffer[counter] != '':
+                counter += 1
+
+            data = msg.join(recv_buffer[0:counter+1], '')
+            self.base = (self.base + counter + 1) % self.ws
+
+            debug_log(f'[sr recver]: Received base seq number, updating base and sending data to upper-layer')
+            debug_log(f'             DATA: {data}')
+            debug_log(f'             Pkts ACKed: {counter + 1}')
+
+            # Send data to upper-layer and clean recv buffer
+            recv_callback(data)
+            recv_buffer = recv_buffer[:counter+1] + ([''] * counter)
+        else:
+            # Save out of order package:
+            # The seq number relative to the current base
+            debug_log(f'[sr recver]: Saving out-of-order pkt')
+            relative_seq = (seq - self.base) % usable_len - 1
+            recv_buffer[relative_seq] = msg
 
     # Main method of the receiver, should be only called once before the stop
     # method is called
-    def run(self):
+    def run(self, recv_callback: Callable[[str], any]):
         with self.status_lock:
             if self.running:
                 print('ERROR: Receiver instance already running')
@@ -41,7 +80,7 @@ class Receiver:
             # Get packets that are not corrupt and receive them
             pkts = getPackets(data_recv)
             for p in pkts:
-                pass
+                self._recv(p, recv_callback)
 
         debug_log('Stopped Selective Repeat receiver!')
     
@@ -51,6 +90,9 @@ class Receiver:
                 print('ERROR: Receiver not running, can\'t stop')
                 return
             self.running = False
+        
+        self.base = 0
+        self.expected_ack = 0
 
 
 if __name__ == '__main__':
