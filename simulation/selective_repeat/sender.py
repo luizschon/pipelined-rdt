@@ -65,18 +65,21 @@ class Sender:
                 return
 
             # TODO Stop timer for received seq number
-            debug_log(f'[sr sender]: Received ACK, seq: {seq}')
-            debug_log(self.pkts_in_air)
+            debug_log(f'[sr sender]: Received ACK, seq: {seq}, current base: {self.base}')
             del self.pkts_in_air[seq]
+            old_base = self.base
 
             # Updates base. Should be equal to the least recent seq sent
             if len(self.pkts_in_air) != 0:
+                debug_log(self.pkts_in_air)
                 self.base = next(iter(self.pkts_in_air)) # Get first key of dict
             else:
                 self.base = (self.base + 1) % self.ws
 
-            self.semph.release()
-            debug_log(f'[sr sender]: Shifted base: {self.base}')
+            # Libera semaforos somente se base mudou
+            if self.base != old_base:
+                debug_log(f'[sr sender]: Shifted base: {self.base}')
+                self.semph.release((self.base - old_base) % self.ws)
 
     # Main method of the sender, should be only called once before the stop
     # method is called

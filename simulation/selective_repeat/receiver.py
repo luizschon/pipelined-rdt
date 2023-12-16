@@ -22,7 +22,7 @@ class Receiver:
     def __init__(self, conn: NetworkLayer, ws=10):
         self.conn = conn
         self.ws = ws
-        self.recv_buffer = ['']*(ws) 
+        self.recv_buffer = [None] * ws 
 
     def _recv(self, pkt: Packet, recv_callback: Callable[[str], any]):
         seq = pkt.seq_num
@@ -43,10 +43,12 @@ class Receiver:
         # receiving window, otherwise, save packet in the out-of-order buffer.
         if seq == self.base:
             counter = 0
-            while self.recv_buffer[counter] != '':
+            for buffered in self.recv_buffer:
+                if buffered == None:
+                    break
                 counter += 1
 
-            data = ''.join([msg] + self.recv_buffer[0:counter+1])
+            data = ''.join([msg] + self.recv_buffer[0:counter])
             self.base = (self.base + counter + 1) % self.ws
 
             debug_log(f'[sr recver]: Received base seq number, updating base and sending data to upper-layer')
@@ -55,8 +57,8 @@ class Receiver:
 
             # Send data to upper-layer and clean recv buffer
             recv_callback(data)
-            self.recv_buffer = self.recv_buffer[:counter+1] + ([''] * counter)
-            self.conn.udt_send(Packet(seq, ACK).get_byte_S()) #TODO SEND ACK
+            self.recv_buffer = self.recv_buffer[counter:] + ([None] * counter)
+            self.conn.udt_send(Packet(seq, ACK).get_byte_S())
         else:
             # Save out of order package:
             # The seq number relative to the current base
