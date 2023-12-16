@@ -1,6 +1,7 @@
 import sys, argparse
-from threading import Lock
+from threading import Thread, Lock
 from typing import Callable
+from time import sleep, time
 
 # Hacky fix to import from parent folder
 path_slip = __file__.split('/')
@@ -13,6 +14,7 @@ class Receiver:
     # State control variables
     base = 0
     next_base = 0
+    last_recv_time = 0
     running = False
     status_lock = Lock()    # Lock for running status
     control_lock = Lock()   # Lock for control variables
@@ -36,7 +38,7 @@ class Receiver:
             debug_log(f'[sr recver]: Pkt outside range, resending ACK...')
             self.conn.udt_send(Packet(seq, ACK))
             return
-
+        
         # If seq number received is equal to the base, update the base of the 
         # receiving window, otherwise, save packet in the out-of-order buffer.
         if seq == self.base:
@@ -44,7 +46,7 @@ class Receiver:
             while self.recv_buffer[counter] != '':
                 counter += 1
 
-            data = msg.join(recv_buffer[0:counter+1], '')
+            data = ''.join([msg] + self.recv_buffer[0:counter+1])
             self.base = (self.base + counter + 1) % self.ws
 
             debug_log(f'[sr recver]: Received base seq number, updating base and sending data to upper-layer')
@@ -53,13 +55,14 @@ class Receiver:
 
             # Send data to upper-layer and clean recv buffer
             recv_callback(data)
-            recv_buffer = recv_buffer[:counter+1] + ([''] * counter)
+            self.recv_buffer = self.recv_buffer[:counter+1] + ([''] * counter)
+            self.conn.udt_send(Packet(seq, ACK).get_byte_S()) #TODO SEND ACK
         else:
             # Save out of order package:
             # The seq number relative to the current base
             debug_log(f'[sr recver]: Saving out-of-order pkt')
             relative_seq = (seq - self.base) % usable_len - 1
-            recv_buffer[relative_seq] = msg
+            self.recv_buffer[relative_seq] = msg
 
     # Main method of the receiver, should be only called once before the stop
     # method is called
@@ -78,11 +81,12 @@ class Receiver:
             if data_recv == '':
                 continue
             # Get packets that are not corrupt and receive them
+            self.last_recv_time = time()
             pkts = getPackets(data_recv)
             for p in pkts:
                 self._recv(p, recv_callback)
 
-        debug_log('Stopped Selective Repeat receiver!')
+        debug_log('\nStopped Selective Repeat receiver!')
     
     def stop(self):
         with self.status_lock:
@@ -92,8 +96,6 @@ class Receiver:
             self.running = False
         
         self.base = 0
-        self.expected_ack = 0
-
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Selective Repeat Receiver.')
@@ -102,12 +104,37 @@ if __name__ == '__main__':
     parser.add_argument('port', help='Port.', type=int)
     args = parser.parse_args()
 
-    recv_buffer = ''
-    def callback(msg: str):
-        recv_buffer += msg
+    global recv_buffer
+    recv_buffer = []
 
+    def callback(msg: str):
+        recv_buffer.append(msg)
+
+    conn = None
+    recver = None
+    runner = None
     try:
         conn = NetworkLayer(args.role, args.server, args.port)
-        recver = Receiver(conn, callback)
-    except:
-        pass
+        recver = Receiver(conn)
+        runner = Thread(target=recver.run, args=[callback])
+        runner.start()
+
+        while recver.last_recv_time == 0:
+            pass
+        while time() < recver.last_recv_time + 5:
+            sleep(1)
+
+        recver.stop()
+        runner.join()
+        conn.disconnect()
+        print(f'RECVER BUFFER: {recv_buffer}')
+
+    except (Exception, KeyboardInterrupt) as err:
+        print('ERROR: ' + type(err).__name__)
+        print(err)
+        if recver != None:
+            recver.stop()
+            runner.join()
+        if recver != None:
+            conn.disconnect()
+    

@@ -1,6 +1,7 @@
 import sys, argparse
-from threading import Thread, Lock, Timer
+from threading import Thread, Lock, Timer, Semaphore
 from typing import Callable
+from time import sleep
 
 # Hacky fix to import from parent folder
 path_slip = __file__.split('/')
@@ -8,6 +9,7 @@ sys.path.append('/'.join(path_slip[0:len(path_slip)-2]))
 
 from Network import NetworkLayer
 from RDT import Packet, getPackets, debug_log
+
 
 class Sender:
     # State control variables
@@ -22,46 +24,28 @@ class Sender:
         self.conn = conn
         self.ws = ws
         self.timeout_sec = timeout_sec
+        self.semph = Semaphore(int(ws/2))
 
     # Timeout handler for each packet in-air, called by Timer theading objects
     def _handle_timeout(self, seq: int):
-        # TODO: review if this lock is needed
-        # with self.control_lock:
-            pkt = self.pkts_in_air.get(seq)
-            if not pkt:
-                raise RuntimeError(f'''SR Sender: tried to resend packet with seq {seq}, 
-                                   but is not in pkts_in_air list, maybe the packet arrived 
-                                   as the timeout happened if control_lock is not aquired''')
-
-            debug_log(f'[sr sender] WARNING: Timeout on seq {seq}, resending packet...')
-            debug_log(f'            DATA:    {pkt.get_byte_S()}')
-            self.conn.udt_send(pkt.get_byte_S())
-            self.timers[seq].start()    # No need to cancel timer, since it triggered
+        # TODO
+        pass
 
     # Method called from layer above (server or client) to send data through
     # reliable tunnel 
     def send(self, data: str):
+        self.semph.acquire()
         with self.status_lock:
             if not self.running:
                 print('ERROR: Run sender before calling "send" method')
 
         with self.control_lock:
-            if (len(self.pkts_in_air) == self.ws):
-                return
-
             pkt = Packet(self.next_seq, str(data))
-            self.pkts_in_air.append(pkt)
-            debug_log(f'[sr sender]: Sent packet, seq: {self.next_seq}')
+            self.pkts_in_air[pkt.seq_num] = pkt
+            debug_log(f'[sr sender]: Sent packet, seq: {self.next_seq}, msg: {data}')
             self.conn.udt_send(pkt.get_byte_S())
 
             # TODO handle timers better, maybe abstract to its own class
-            timer = self.timers[self.next_seq]
-            if not timer.is_alive():
-                timer.start()
-            else:
-                timer.cancel()
-                timer.start()
-
             self.next_seq = (self.next_seq + 1) % self.ws
 
     # Internal function that handles data being received. Calls data recv
@@ -80,13 +64,18 @@ class Sender:
                 debug_log(f'[sr sender] WARNING: Received unexpected ACK, seq: {seq}')
                 return
 
-            # Stop timer for received seq number
-            self.timers[seq].cancel()
+            # TODO Stop timer for received seq number
             debug_log(f'[sr sender]: Received ACK, seq: {seq}')
+            debug_log(self.pkts_in_air)
+            del self.pkts_in_air[seq]
 
             # Updates base. Should be equal to the least recent seq sent
-            self.pkts_in_air.remove(seq)
-            self.base = self.pkts_in_air.keys()[0]
+            if len(self.pkts_in_air) != 0:
+                self.base = next(iter(self.pkts_in_air)) # Get first key of dict
+            else:
+                self.base = (self.base + 1) % self.ws
+
+            self.semph.release()
             debug_log(f'[sr sender]: Shifted base: {self.base}')
 
     # Main method of the sender, should be only called once before the stop
@@ -101,9 +90,6 @@ class Sender:
         debug_log('Started Selective Repeat sender!')
         debug_log(f'WINDOW SIZE: {self.ws}\n')
 
-        # Create asynchronous timers for each sequence number
-        self.timers = [Timer(self.timeout_sec, self._handle_timeout, args=[seq]) for seq in range(self.ws)]
-
         while self.running:
             data_recv = self.conn.udt_receive()
             if data_recv == '':
@@ -113,7 +99,7 @@ class Sender:
             for p in pkts:
                 self._recv(p)
 
-        debug_log('Stopped Selective Repeat sender!')
+        debug_log('\nStopped Selective Repeat sender!')
     
     def stop(self):
         with self.status_lock:
@@ -122,13 +108,13 @@ class Sender:
                 return
             self.running = False
 
-        # Stop all timers
-        for timer in self.timers:
-            timer.cancel()
-        
         self.base = 0
         self.next_seq = 0
         self.pkts_in_air = dict()
+
+    def pending_packets(self) -> bool:
+        with self.control_lock:
+            return len(self.pkts_in_air) == 0
 
 
 if __name__ == '__main__':
@@ -146,12 +132,22 @@ if __name__ == '__main__':
         sender = Sender(conn)
         runner = Thread(target=sender.run)
         runner.start()
+
+        for msg in "o guga eh favoravel a brotherage, o tempo todo me aparece esse lobo pidao".split(' '):
+            sender.send(msg)
+        while sender.pending_packets():
+            sleep(1)
+
+        sender.stop()
         runner.join()
-    except Exception as err:
+        sleep(5)
+        conn.disconnect()
+
+    except (Exception, KeyboardInterrupt) as err:
         print('ERROR: ' + type(err).__name__)
         print(err)
         if sender != None:
             sender.stop()
             runner.join()
-        if sender != None:
+        if conn != None:
             conn.disconnect()
