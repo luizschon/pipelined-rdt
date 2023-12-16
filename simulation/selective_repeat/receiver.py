@@ -36,7 +36,7 @@ class Receiver:
         # We trust that the sender is correctly synchronized with us, 
         if (seq - self.base) % self.ws + 1 > usable_len:
             debug_log(f'[sr recver]: Pkt outside range, resending ACK...')
-            self.conn.udt_send(Packet(seq, ACK))
+            self.conn.udt_send(Packet(seq, ACK).get_byte_S())
             return
         
         # If seq number received is equal to the base, update the base of the 

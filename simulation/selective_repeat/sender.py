@@ -9,7 +9,7 @@ sys.path.append('/'.join(path_slip[0:len(path_slip)-2]))
 
 from Network import NetworkLayer
 from RDT import Packet, getPackets, debug_log
-
+from async_timer import AsyncTimer
 
 class Sender:
     # State control variables
@@ -17,19 +17,22 @@ class Sender:
     next_seq = 0
     pkts_in_air = dict()
     running = False
+    timer = []
     status_lock = Lock()    # Lock for running status
     control_lock = Lock()   # Lock for control variables
 
     def __init__(self, conn: NetworkLayer, ws=10, timeout_sec=2):
         self.conn = conn
         self.ws = ws
-        self.timeout_sec = timeout_sec
         self.semph = Semaphore(int(ws/2))
+        self.timer = [AsyncTimer(timeout_sec, self._handle_timeout, args=[seq]) for seq in range(ws)]
 
     # Timeout handler for each packet in-air, called by Timer theading objects
     def _handle_timeout(self, seq: int):
-        # TODO
-        pass
+        with self.control_lock:
+            debug_log(f'[sr sender]: TIMEOUT, resending seq: {seq}')
+            self.conn.udt_send(self.pkts_in_air[seq].get_byte_S())
+            self.timer[seq].start()
 
     # Method called from layer above (server or client) to send data through
     # reliable tunnel 
@@ -40,12 +43,13 @@ class Sender:
                 print('ERROR: Run sender before calling "send" method')
 
         with self.control_lock:
-            pkt = Packet(self.next_seq, str(data))
-            self.pkts_in_air[pkt.seq_num] = pkt
-            debug_log(f'[sr sender]: Sent packet, seq: {self.next_seq}, msg: {data}')
+            seq = self.next_seq
+            pkt = Packet(seq, str(data))
+            self.pkts_in_air[seq] = pkt
+            debug_log(f'[sr sender]: Sent packet, seq: {seq}, msg: {data}')
             self.conn.udt_send(pkt.get_byte_S())
 
-            # TODO handle timers better, maybe abstract to its own class
+            self.timer[seq].start()
             self.next_seq = (self.next_seq + 1) % self.ws
 
     # Internal function that handles data being received. Calls data recv
@@ -66,12 +70,12 @@ class Sender:
 
             # TODO Stop timer for received seq number
             debug_log(f'[sr sender]: Received ACK, seq: {seq}, current base: {self.base}')
+            self.timer[seq].stop()
             del self.pkts_in_air[seq]
             old_base = self.base
 
             # Updates base. Should be equal to the least recent seq sent
             if len(self.pkts_in_air) != 0:
-                debug_log(self.pkts_in_air)
                 self.base = next(iter(self.pkts_in_air)) # Get first key of dict
             else:
                 self.base = (self.base + 1) % self.ws
@@ -117,7 +121,7 @@ class Sender:
 
     def pending_packets(self) -> bool:
         with self.control_lock:
-            return len(self.pkts_in_air) == 0
+            return len(self.pkts_in_air) > 0
 
 
 if __name__ == '__main__':
