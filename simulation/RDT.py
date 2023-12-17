@@ -3,13 +3,7 @@ import argparse
 import time
 from time import sleep
 import hashlib
-
-debug = True    
-# default = False
-
-def debug_log(message):
-    if debug:
-        print(message)
+from utils import debug_log
 
 ACK = "1"
 
@@ -78,25 +72,29 @@ def getPackets(data_stream: str) -> [Packet]:
     parsed_packets = []
     counter = 0
 
-    while data_stream != "":
-        packet_len = int(data_stream[0:Packet.length_S_length])    
+    try:
+        while data_stream != "":
+            packet_len = int(data_stream[:Packet.length_S_length])    
 
-        # Sanity check to guarantee that the remaining data is greater or equal
-        # than the parsed packet length, otherwise, we would have a runtime error
-        if len(data_stream) < packet_len:
-            return parsed_packets
+            # Sanity check to guarantee that the remaining data is greater or equal
+            # than the parsed packet length, otherwise, we would have a runtime error
+            if len(data_stream) < packet_len:
+                return parsed_packets
 
-        packet_stream = data_stream[0:packet_len]
-        debug_log(f"getPackets P{counter+1}: {packet_stream}")
-        data_stream = data_stream[packet_len:]
+            packet_stream = data_stream[:packet_len]
+            # debug_log(f"getPackets P{counter+1}: {packet_stream}")
+            data_stream = data_stream[packet_len:]
 
-        # If one of the packets is corrupt, stop execution and return parsed packets
-        if Packet.corrupt(packet_stream):
-            debug_log("getPackets: Found corrupt packet in data stream, aborting parsing...")
-            break
+            # If one of the packets is corrupt, stop execution and return parsed packets
+            if Packet.corrupt(packet_stream):
+                debug_log("getPackets: Found corrupt packet in data stream, aborting parsing...")
+                break
 
-        parsed_packets.append(Packet.from_byte_S(packet_stream))
-        counter += 1
+            parsed_packets.append(Packet.from_byte_S(packet_stream))
+            counter += 1
+
+    except ValueError:
+        debug_log("getPackets: Found corrupt packet in data stream, aborting parsing...")
 
     debug_log(f"getPackets: Found {len(parsed_packets)} packets")
     return parsed_packets

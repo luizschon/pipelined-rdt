@@ -4,7 +4,7 @@ import threading
 from time import sleep
 import random
 import RDT
-
+from utils import debug_log
 
 ## Provides an abstraction for the network layer
 class NetworkLayer:
@@ -25,13 +25,13 @@ class NetworkLayer:
 
     def __init__(self, role_S, server_S, port):
         if role_S == 'client':
-            print('Network: role is client')
+            debug_log('Network: role is client')
             self.conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             self.conn.connect((server_S, port))
             self.conn.settimeout(self.socket_timeout)
 
         elif role_S == 'server':
-            print('Network: role is server')
+            debug_log('Network: role is server')
             self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             self.sock.bind(('', port))
             self.sock.listen(1)
