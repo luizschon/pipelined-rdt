@@ -8,7 +8,8 @@ path_slip = __file__.split('/')
 sys.path.append('/'.join(path_slip[0:len(path_slip)-2]))
 
 from Network import NetworkLayer
-from RDT import Packet, getPackets, debug_log, ACK
+from RDT import Packet, getPackets, ACK
+from utils import debug_log
 
 class Receiver:
     # State control variables
@@ -48,23 +49,26 @@ class Receiver:
                     break
                 counter += 1
 
-            data = ''.join([msg] + self.recv_buffer[0:counter])
+            data = ''.join([msg] + self.recv_buffer[:counter])
             self.base = (self.base + counter + 1) % self.ws
 
             debug_log(f'[sr recver]: Received base seq number, updating base and sending data to upper-layer')
-            debug_log(f'             DATA: {data}')
             debug_log(f'             Pkts ACKed: {counter + 1}')
 
             # Send data to upper-layer and clean recv buffer
             recv_callback(data)
-            self.recv_buffer = self.recv_buffer[counter:] + ([None] * counter)
+            self.recv_buffer = self.recv_buffer[counter+1:] + ([None] * (counter+1))
             self.conn.udt_send(Packet(seq, ACK).get_byte_S())
         else:
-            # Save out of order package:
-            # The seq number relative to the current base
-            debug_log(f'[sr recver]: Saving out-of-order pkt')
             relative_seq = (seq - self.base) % usable_len - 1
-            self.recv_buffer[relative_seq] = msg
+            if self.recv_buffer[relative_seq] == None:
+                # Save out of order package:
+                # The seq number relative to the current base
+                debug_log(f'[sr recver]: Saving out-of-order pkt')
+                self.recv_buffer[relative_seq] = msg
+            else:
+                debug_log(f'[sr recver]: Repeated pkt, resending ACK...')
+                self.conn.udt_send(Packet(seq, ACK).get_byte_S())
 
     # Main method of the receiver, should be only called once before the stop
     # method is called
@@ -97,6 +101,7 @@ class Receiver:
                 return
             self.running = False
         
+        self.last_recv_time = 0
         self.base = 0
 
 if __name__ == '__main__':

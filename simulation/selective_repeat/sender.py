@@ -8,8 +8,9 @@ path_slip = __file__.split('/')
 sys.path.append('/'.join(path_slip[0:len(path_slip)-2]))
 
 from Network import NetworkLayer
-from RDT import Packet, getPackets, debug_log
+from RDT import Packet, getPackets
 from async_timer import AsyncTimer
+from utils import debug_log
 
 class Sender:
     # State control variables
@@ -27,7 +28,7 @@ class Sender:
         self.semph = Semaphore(int(ws/2))
         self.timer = [AsyncTimer(timeout_sec, self._handle_timeout, args=[seq]) for seq in range(ws)]
 
-    # Timeout handler for each packet in-air, called by Timer theading objects
+    # Timeout handler for each packet in-air, called by Timer threading objects
     def _handle_timeout(self, seq: int):
         with self.control_lock:
             debug_log(f'[sr sender]: TIMEOUT, resending seq: {seq}')
@@ -46,7 +47,8 @@ class Sender:
             seq = self.next_seq
             pkt = Packet(seq, str(data))
             self.pkts_in_air[seq] = pkt
-            debug_log(f'[sr sender]: Sent packet, seq: {seq}, msg: {data}')
+            debug_log(f'[sr sender]: Sent packet, seq: {seq}, msg len: {len(data)}')
+            debug_log(f'{data}')
             self.conn.udt_send(pkt.get_byte_S())
 
             self.timer[seq].start()
@@ -59,8 +61,7 @@ class Sender:
         msg = pkt.msg_S
 
         if not pkt.is_ack_pack():
-            debug_log(f'[sr sender] WARNING: Expected ACK, got "{msg or None}", data: {pkt.get_byte_S()}')
-            debug_log(f'            DATA:    {pkt.get_byte_S()}')
+            debug_log(f'[sr sender] WARNING: Expected ACK, got "{msg or None}"')
             return
 
         with self.control_lock:
