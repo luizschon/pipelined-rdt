@@ -131,6 +131,7 @@ class Sender:
                 return
             self.running = False
 
+        for timer in self.timer: timer.stop()
         self.base = 0
         self.next_seq = 0
         self.pkts_in_air = dict()
