@@ -6,12 +6,15 @@ import random
 import RDT
 from utils import debug_log
 
+# TCP + IP + Ethernet headers size
+HEADER_TCP_IP = 66
+
 ## Provides an abstraction for the network layer
 class NetworkLayer:
     # configuration parameters
-    prob_pkt_loss = 0
-    prob_byte_corr = 0
-    prob_pkt_reorder = 0
+    prob_pkt_loss = 0.1
+    prob_byte_corr = 0.1
+    prob_pkt_reorder = 0.1
 
     # class variables
     sock = None
@@ -22,6 +25,9 @@ class NetworkLayer:
     stop = None
     socket_timeout = 0.1
     reorder_msg_S = None
+    # Stats variables
+    bytes_sent = 0
+    bytes_recv = 0
 
     def __init__(self, role_S, server_S, port):
         if role_S == 'client':
@@ -77,22 +83,24 @@ class NetworkLayer:
             sent = self.conn.send(msg_S[totalsent:].encode('utf-8'))
             if sent == 0:
                 raise RuntimeError("socket connection broken")
+            self.bytes_sent += sent + HEADER_TCP_IP
             totalsent = totalsent + sent
+
 
     ## Receive data from the network and save in internal buffer
     def collect(self):
-        #         print (threading.currentThread().getName() + ': Starting')
         while (True):
             try:
                 recv_bytes = self.conn.recv(2048)
                 with self.lock:
-                    self.buffer_S += recv_bytes.decode('utf-8')
+                    decoded_bytes = recv_bytes.decode('utf-8')
+                    self.buffer_S += decoded_bytes
+                    self.bytes_recv += len(decoded_bytes) + HEADER_TCP_IP
             except BlockingIOError as err:
                 pass
             except socket.timeout as err:
                 pass
             if self.stop:
-                #                 print (threading.currentThread().getName() + ': Ending')
                 return
 
     ## Deliver collected data to client
@@ -101,6 +109,13 @@ class NetworkLayer:
             ret_S = self.buffer_S
             self.buffer_S = ''
         return ret_S
+
+    def get_stats(self):
+        with self.lock:
+            return {
+                'bytes_sent': self.bytes_sent,
+                'bytes_recv': self.bytes_recv,
+            }
 
 
 if __name__ == '__main__':

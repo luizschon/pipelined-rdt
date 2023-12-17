@@ -1,7 +1,6 @@
 import sys, argparse
-from threading import Thread, Lock, Timer, Semaphore
-from typing import Callable
-from time import sleep
+from threading import Thread, Lock, Semaphore
+from time import sleep, time
 
 # Hacky fix to import from parent folder
 path_slip = __file__.split('/')
@@ -21,6 +20,11 @@ class Sender:
     timer = []
     status_lock = Lock()    # Lock for running status
     control_lock = Lock()   # Lock for control variables
+    last_recv_time = 0
+    # Stats variables
+    bytes_sent = 0
+    corrupted_pkts = 0
+    timeouts = 0
 
     def __init__(self, conn: NetworkLayer, ws=10, timeout_sec=2):
         self.conn = conn
@@ -32,7 +36,10 @@ class Sender:
     def _handle_timeout(self, seq: int):
         with self.control_lock:
             debug_log(f'[sr sender]: TIMEOUT, resending seq: {seq}')
-            self.conn.udt_send(self.pkts_in_air[seq].get_byte_S())
+            pkt = self.pkts_in_air[seq]
+            self.conn.udt_send(pkt.get_byte_S())
+            self.bytes_sent += len(pkt.msg_S)
+            self.timeouts += 1
             self.timer[seq].start()
 
     # Method called from layer above (server or client) to send data through
@@ -47,9 +54,14 @@ class Sender:
             seq = self.next_seq
             pkt = Packet(seq, str(data))
             self.pkts_in_air[seq] = pkt
+
             debug_log(f'[sr sender]: Sent packet, seq: {seq}, msg len: {len(data)}')
-            debug_log(f'{data}')
+            # debug_log('\n')
+            # debug_log(str(data.encode()))
+            # debug_log('\n')
+
             self.conn.udt_send(pkt.get_byte_S())
+            self.bytes_sent += len(pkt.msg_S)
 
             self.timer[seq].start()
             self.next_seq = (self.next_seq + 1) % self.ws
@@ -57,6 +69,7 @@ class Sender:
     # Internal function that handles data being received. Calls data recv
     # callback specified by user (server or client)
     def _recv(self, pkt: Packet):
+        self.last_recv_time = time()
         seq = pkt.seq_num
         msg = pkt.msg_S
 
@@ -79,7 +92,7 @@ class Sender:
             if len(self.pkts_in_air) != 0:
                 self.base = next(iter(self.pkts_in_air)) # Get first key of dict
             else:
-                self.base = (self.base + 1) % self.ws
+                self.base = self.next_seq
 
             # Libera semaforos somente se base mudou
             if self.base != old_base:
@@ -102,12 +115,14 @@ class Sender:
             data_recv = self.conn.udt_receive()
             if data_recv == '':
                 continue
+
             # Get packets that are not corrupt and receive them
-            pkts = getPackets(data_recv)
+            pkts, corrupt = getPackets(data_recv)
+            if corrupt: self.corrupted_pkts += 1
             for p in pkts:
                 self._recv(p)
 
-        debug_log('\nStopped Selective Repeat sender!')
+        debug_log('Stopped Selective Repeat sender!')
     
     def stop(self):
         with self.status_lock:
@@ -123,6 +138,14 @@ class Sender:
     def pending_packets(self) -> bool:
         with self.control_lock:
             return len(self.pkts_in_air) > 0
+
+    def get_stats(self):
+        with self.control_lock:
+            return {
+                'bytes_sent': self.bytes_sent,
+                'corrupted_pkts': self.corrupted_pkts,
+                'timeouts': self.timeouts,
+            }
 
 
 if __name__ == '__main__':

@@ -51,7 +51,7 @@ class Packet:
         seq_num_S = byte_S[Packet.length_S_length: Packet.seq_num_S_length + Packet.seq_num_S_length]
         fin_S = byte_S[Packet.length_S_length + Packet.seq_num_S_length]
         checksum_S = byte_S[
-                     Packet.seq_num_S_length + Packet.seq_num_S_length + Packet.fin_length: Packet.seq_num_S_length + Packet.length_S_length + Packet.fin_length + Packet.checksum_length]
+                    Packet.seq_num_S_length + Packet.seq_num_S_length + Packet.fin_length: Packet.seq_num_S_length + Packet.length_S_length + Packet.fin_length + Packet.checksum_length]
         msg_S = byte_S[Packet.seq_num_S_length + Packet.seq_num_S_length + Packet.fin_length + Packet.checksum_length:]
 
         # compute the checksum locally
@@ -68,18 +68,29 @@ class Packet:
     def is_fin_pack(self):
         return self.fin
 
-def getPackets(data_stream: str) -> [Packet]:
+
+prev_data_buffer = ''
+def getPackets(data: str) -> ([Packet], bool):
+    global prev_data_buffer
     parsed_packets = []
     counter = 0
+    corrupt = False
 
+    data_stream = prev_data_buffer + data
+
+    # debug_log('\n\n')
+    # debug_log(f"datastream: {data_stream}")
+    # debug_log('\n\n')
     try:
         while data_stream != "":
             packet_len = int(data_stream[:Packet.length_S_length])    
 
             # Sanity check to guarantee that the remaining data is greater or equal
-            # than the parsed packet length, otherwise, we would have a runtime error
+            # than the parsed packet length, otherwise, we would have a runtime error.
+            # Saves data into a buffer for later use.
             if len(data_stream) < packet_len:
-                return parsed_packets
+                prev_data_buffer = data_stream
+                return (parsed_packets, False)
 
             packet_stream = data_stream[:packet_len]
             # debug_log(f"getPackets P{counter+1}: {packet_stream}")
@@ -88,16 +99,19 @@ def getPackets(data_stream: str) -> [Packet]:
             # If one of the packets is corrupt, stop execution and return parsed packets
             if Packet.corrupt(packet_stream):
                 debug_log("getPackets: Found corrupt packet in data stream, aborting parsing...")
+                corrupt = True
                 break
 
             parsed_packets.append(Packet.from_byte_S(packet_stream))
             counter += 1
 
-    except ValueError:
+    except Exception:
         debug_log("getPackets: Found corrupt packet in data stream, aborting parsing...")
+        corrupt = True
 
+    prev_data_buffer = ''
     debug_log(f"getPackets: Found {len(parsed_packets)} packets")
-    return parsed_packets
+    return (parsed_packets, corrupt)
  
 
 class RDT:

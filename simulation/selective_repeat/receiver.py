@@ -19,6 +19,9 @@ class Receiver:
     running = False
     status_lock = Lock()    # Lock for running status
     control_lock = Lock()   # Lock for control variables
+    # Stats variables
+    bytes_recv = 0
+    corrupted_pkts = 0
 
     def __init__(self, conn: NetworkLayer, ws=10):
         self.conn = conn
@@ -57,8 +60,9 @@ class Receiver:
 
             # Send data to upper-layer and clean recv buffer
             recv_callback(data)
+            self.bytes_recv += len(data)
+
             self.recv_buffer = self.recv_buffer[counter+1:] + ([None] * (counter+1))
-            self.conn.udt_send(Packet(seq, ACK).get_byte_S())
         else:
             relative_seq = (seq - self.base) % usable_len - 1
             if self.recv_buffer[relative_seq] == None:
@@ -68,7 +72,8 @@ class Receiver:
                 self.recv_buffer[relative_seq] = msg
             else:
                 debug_log(f'[sr recver]: Repeated pkt, resending ACK...')
-                self.conn.udt_send(Packet(seq, ACK).get_byte_S())
+
+        self.conn.udt_send(Packet(seq, ACK).get_byte_S())
 
     # Main method of the receiver, should be only called once before the stop
     # method is called
@@ -88,11 +93,12 @@ class Receiver:
                 continue
             # Get packets that are not corrupt and receive them
             self.last_recv_time = time()
-            pkts = getPackets(data_recv)
+            pkts, corrupt = getPackets(data_recv)
+            if corrupt: self.corrupted_pkts += 1
             for p in pkts:
                 self._recv(p, recv_callback)
 
-        debug_log('\nStopped Selective Repeat receiver!')
+        debug_log('Stopped Selective Repeat receiver!')
     
     def stop(self):
         with self.status_lock:
@@ -103,6 +109,14 @@ class Receiver:
         
         self.last_recv_time = 0
         self.base = 0
+
+    def get_stats(self):
+        with self.control_lock:
+            return {
+                'bytes_recv': self.bytes_recv,
+                'corrupted_pkts': self.corrupted_pkts,
+            }
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Selective Repeat Receiver.')

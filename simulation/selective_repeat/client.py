@@ -2,6 +2,7 @@ import sys, argparse
 from threading import Thread, Lock
 from sender import Sender
 from receiver import Receiver
+from time import sleep
 
 # Hacky fix to import from parent folder
 path_slip = __file__.split('/')
@@ -42,11 +43,11 @@ if __name__ == '__main__':
         recver_t = Thread(target=recver.run, args=[recv_callback])
 
         with open(args.file) as f:
-            sender_t.start()
             buffer = f.read()
             bytes_pending = len(buffer)
 
             # Sends data in PACKET_SIZE sized chunks to server
+            sender_t.start()
             for chunk in utils.getChunks(PACKET_SIZE, buffer):
                 sender.send(chunk)
             
@@ -78,3 +79,8 @@ if __name__ == '__main__':
             recver.stop()
             recver_t.join()
             conn.disconnect()
+
+    sys.stderr.write('\n')
+    sys.stderr.write(f'sender: {sender.get_stats()}\n')
+    sys.stderr.write(f'recver: {recver.get_stats()}\n')
+    sys.stderr.write(f'conn  : {conn.get_stats()}\n')

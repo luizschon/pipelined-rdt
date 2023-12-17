@@ -1,5 +1,6 @@
 import sys
 from constants import DEBUG
+from textwrap import wrap
 
 def getChunks(chunk_size: int, data: str) -> list:
     chunks = []
@@ -12,4 +13,4 @@ def getChunks(chunk_size: int, data: str) -> list:
 
 def debug_log(message):
     if DEBUG:
-        sys.stderr.write(f'{message}\n')
+        sys.stderr.write('\n'.join(wrap(message, width=64)) + '\n')

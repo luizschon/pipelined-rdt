@@ -53,7 +53,7 @@ if __name__ == '__main__':
         recv_buffer = '' # Clean buffer
 
         # Wait communication to end
-        while sender.pending_packets():
+        while sender.pending_packets() and time() < sender.last_recv_time + 5:
             pass
 
         sender.stop()
@@ -69,3 +69,8 @@ if __name__ == '__main__':
             recver.stop()
             recver_t.join()
             conn.disconnect()
+
+    sys.stderr.write('\n')
+    sys.stderr.write(f'sender: {sender.get_stats()}\n')
+    sys.stderr.write(f'recver: {recver.get_stats()}\n')
+    sys.stderr.write(f'conn  : {conn.get_stats()}\n')
