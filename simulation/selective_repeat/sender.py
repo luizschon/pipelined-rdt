@@ -10,6 +10,7 @@ from Network import NetworkLayer
 from RDT import Packet, getPackets
 from async_timer import AsyncTimer
 from utils import debug_log
+from log_event import *
 
 class Sender:
     # State control variables
@@ -26,8 +27,9 @@ class Sender:
     corrupted_pkts = 0
     timeouts = 0
 
-    def __init__(self, conn: NetworkLayer, ws=10, timeout_sec=2):
+    def __init__(self, conn: NetworkLayer, ws=10, timeout_sec=2, logger: Logger=None):
         self.conn = conn
+        self.logger = logger
         self.ws = ws
         self.semph = Semaphore(int(ws/2))
         self.timer = [AsyncTimer(timeout_sec, self._handle_timeout, args=[seq]) for seq in range(ws)]
@@ -35,8 +37,9 @@ class Sender:
     # Timeout handler for each packet in-air, called by Timer threading objects
     def _handle_timeout(self, seq: int):
         with self.control_lock:
-            debug_log(f'[sr sender]: TIMEOUT, resending seq: {seq}')
             pkt = self.pkts_in_air[seq]
+            debug_log(f'[sr sender]: TIMEOUT, resending seq: {seq}')
+            if self.logger: self.logger.mark_event(TIMEOUT, self.base, seq, pkt.msg_S)
             self.conn.udt_send(pkt.get_byte_S())
             self.bytes_sent += len(pkt.msg_S)
             self.timeouts += 1
@@ -56,9 +59,7 @@ class Sender:
             self.pkts_in_air[seq] = pkt
 
             debug_log(f'[sr sender]: Sent packet, seq: {seq}, msg len: {len(data)}')
-            # debug_log('\n')
-            # debug_log(str(data.encode()))
-            # debug_log('\n')
+            if self.logger: self.logger.mark_event(PKT_SENT, self.base, seq, data)
 
             self.conn.udt_send(pkt.get_byte_S())
             self.bytes_sent += len(pkt.msg_S)
@@ -80,6 +81,7 @@ class Sender:
         with self.control_lock:
             if not self.pkts_in_air.get(seq):
                 debug_log(f'[sr sender] WARNING: Received unexpected ACK, seq: {seq}')
+                if self.logger: self.logger.mark_event(DUP_ACK, self.base, seq, msg)
                 return
 
             debug_log(f'[sr sender]: Received ACK, seq: {seq}, current base: {self.base}')
@@ -92,6 +94,8 @@ class Sender:
                 self.base = next(iter(self.pkts_in_air)) # Get first key of dict
             else:
                 self.base = self.next_seq
+
+            if self.logger: self.logger.mark_event(ACK_RECV, self.base, seq)
 
             # Libera semaforos somente se base mudou
             if self.base != old_base:
@@ -117,7 +121,9 @@ class Sender:
 
             # Get packets that are not corrupt and receive them
             pkts, corrupt = getPackets(data_recv)
-            if corrupt: self.corrupted_pkts += 1
+            if corrupt:
+                self.corrupted_pkts += 1
+                if self.logger: self.logger.mark_event(CORRUPT)
             for p in pkts:
                 self._recv(p)
 

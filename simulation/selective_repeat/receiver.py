@@ -10,6 +10,7 @@ sys.path.append('/'.join(path_slip[0:len(path_slip)-2]))
 from Network import NetworkLayer
 from RDT import Packet, getPackets, ACK
 from utils import debug_log
+from log_event import *
 
 class Receiver:
     # State control variables
@@ -23,8 +24,9 @@ class Receiver:
     bytes_recv = 0
     corrupted_pkts = 0
 
-    def __init__(self, conn: NetworkLayer, ws=10):
+    def __init__(self, conn: NetworkLayer, ws=10, logger: Logger=None):
         self.conn = conn
+        self.logger = logger
         self.ws = ws
         self.recv_buffer = [None] * ws 
 
@@ -35,14 +37,16 @@ class Receiver:
 
         debug_log(f'[sr recver]: Received pkt seq: {seq}')
         debug_log(f'[sr recver]: Current base: {self.base}')
+        if self.logger: self.logger.mark_event(DATA_RECV, self.base, seq, msg)
 
         # If seq number is out of the expected waiting range, send repeated ACK.
         # We trust that the sender is correctly synchronized with us, 
         if (seq - self.base) % self.ws + 1 > usable_len:
             debug_log(f'[sr recver]: Pkt outside range, resending ACK...')
+            if self.logger: self.logger.mark_event(DUP_DATA, self.base, seq)
             self.conn.udt_send(Packet(seq, ACK).get_byte_S())
             return
-        
+
         # If seq number received is equal to the base, update the base of the 
         # receiving window, otherwise, save packet in the out-of-order buffer.
         if seq == self.base:
@@ -69,10 +73,13 @@ class Receiver:
                 # Save out of order package:
                 # The seq number relative to the current base
                 debug_log(f'[sr recver]: Saving out-of-order pkt')
+                if self.logger: self.logger.mark_event(OUT_OF_ORDER, self.base, seq)
                 self.recv_buffer[relative_seq] = msg
             else:
                 debug_log(f'[sr recver]: Repeated pkt, resending ACK...')
+                if self.logger: self.logger.mark_event(DUP_DATA, self.base, seq)
 
+        if self.logger: self.logger.mark_event(ACK_SENT, self.base, seq)
         self.conn.udt_send(Packet(seq, ACK).get_byte_S())
 
     # Main method of the receiver, should be only called once before the stop
@@ -94,7 +101,9 @@ class Receiver:
             # Get packets that are not corrupt and receive them
             self.last_recv_time = time()
             pkts, corrupt = getPackets(data_recv)
-            if corrupt: self.corrupted_pkts += 1
+            if corrupt:
+                self.corrupted_pkts += 1
+                if self.logger: self.logger.mark_event(CORRUPT)
             for p in pkts:
                 self._recv(p, recv_callback)
 
