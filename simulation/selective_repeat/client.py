@@ -34,23 +34,23 @@ class Client(Thread):
         # Mutex to control access to recv_buffer, since the recver and main threads
         # will both access it simutaneously
         buffer_mutex = Lock() 
+        self.conn = NetworkLayer('client', self.server, self.port)
+        self.sender = Sender(self.conn, ws=WINDOW_SIZE, timeout_sec=TIMEOUT, logger=self.logger)
+        self.recver = Receiver(self.conn, ws=WINDOW_SIZE, logger=self.logger)
         # Runs sender and recver threads separately
-        conn = NetworkLayer('client', self.server, self.port)
-        sender = Sender(conn, ws=WINDOW_SIZE, timeout_sec=TIMEOUT, logger=self.logger)
-        recver = Receiver(conn, ws=WINDOW_SIZE, logger=self.logger)
-        sender_t = Thread(target=sender.run)
-        recver_t = Thread(target=recver.run, args=[recv_callback])
+        sender_t = Thread(target=self.sender.run)
+        recver_t = Thread(target=self.recver.run, args=[recv_callback])
 
         # Sends data in PACKET_SIZE sized chunks to server
         bytes_pending = len(self.data_buffer)
         sender_t.start()
         for chunk in utils.getChunks(PACKET_SIZE, self.data_buffer):
-            sender.send(chunk)
+            self.sender.send(chunk)
         
-        while sender.pending_packets():
+        while self.sender.pending_packets():
             pass
 
-        sender.stop()
+        self.sender.stop()
         sender_t.join()
         recver_t.start()
 
@@ -62,9 +62,19 @@ class Client(Thread):
             recv_buffer = ''
             buffer_mutex.release()
 
-        recver.stop()
+        self.recver.stop()
         recver_t.join()
-        conn.disconnect()
+        self.conn.disconnect()
+
+    def get_conn_stats(self):
+        return self.conn.get_stats()
+
+    def get_stats(self):
+        return {
+            **self.conn.get_stats(),
+            'sender': self.sender.get_stats(),
+            'recver': self.recver.get_stats(),
+        }
 
 
 if __name__ == '__main__':

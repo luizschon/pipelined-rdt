@@ -30,33 +30,42 @@ class Server(Thread):
             global recv_buffer
             recv_buffer += msg
 
-        conn = NetworkLayer('server', self.server, self.port)
-        sender = Sender(conn, ws=WINDOW_SIZE, timeout_sec=TIMEOUT, logger=self.logger)
-        recver = Receiver(conn, ws=WINDOW_SIZE, logger=self.logger)
-        sender_t = Thread(target=sender.run)
-        recver_t = Thread(target=recver.run, args=[recv_callback])
+        self.conn = NetworkLayer('server', self.server, self.port)
+        self.sender = Sender(self.conn, ws=WINDOW_SIZE, timeout_sec=TIMEOUT, logger=self.logger)
+        self.recver = Receiver(self.conn, ws=WINDOW_SIZE, logger=self.logger)
+        sender_t = Thread(target=self.sender.run)
+        recver_t = Thread(target=self.recver.run, args=[recv_callback])
         recver_t.start()
 
-        while recver.last_recv_time == 0 or time() < recver.last_recv_time + TIMEOUT + 5 :
+        while self.recver.last_recv_time == 0 or time() < self.recver.last_recv_time + TIMEOUT + 5 :
             pass
 
-        recver.stop()
+        self.recver.stop()
         recver_t.join()
-
         sender_t.start()
 
         # Send captalized text as response to client
         for chunk in utils.getChunks(PACKET_SIZE, recv_buffer):
-            sender.send(chunk)
+            self.sender.send(chunk)
         recv_buffer = '' # Clean buffer
 
         # Wait communication to end
-        while sender.pending_packets() and time() < sender.last_recv_time + 5:
+        while self.sender.pending_packets() and time() < self.sender.last_recv_time + 5:
             pass
 
-        sender.stop()
+        self.sender.stop()
         sender_t.join()
-        conn.disconnect()
+        self.conn.disconnect()
+
+    def get_conn_stats(self):
+        return self.conn.get_stats()
+
+    def get_stats(self):
+        return {
+            **self.conn.get_stats(),
+            'sender': self.sender.get_stats(),
+            'recver': self.recver.get_stats(),
+        }
 
 
 if __name__ == '__main__':

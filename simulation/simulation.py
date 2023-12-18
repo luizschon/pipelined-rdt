@@ -30,6 +30,8 @@ if __name__ == '__main__':
         client.start()
         client.join()
         server.join()
+        print(server.get_stats())
+        print(client.get_stats())
 
     except (Exception, KeyboardInterrupt) as err:
         print(err)
