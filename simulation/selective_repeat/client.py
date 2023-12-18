@@ -2,6 +2,7 @@ import sys, argparse
 from threading import Thread, Lock
 from sender import Sender
 from receiver import Receiver
+from time import time_ns
 
 # Hacky fix to import from parent folder
 path_slip = __file__.split('/')
@@ -9,7 +10,7 @@ sys.path.append('/'.join(path_slip[0:len(path_slip)-2]))
 
 from Network import NetworkLayer
 from log_event import Logger
-from constants import *
+import constants as c
 import utils
 
 class Client(Thread):
@@ -31,40 +32,46 @@ class Client(Thread):
             with buffer_mutex:
                 recv_buffer += msg
 
-        # Mutex to control access to recv_buffer, since the recver and main threads
-        # will both access it simutaneously
-        buffer_mutex = Lock() 
-        self.conn = NetworkLayer('client', self.server, self.port)
-        self.sender = Sender(self.conn, ws=WINDOW_SIZE, timeout_sec=TIMEOUT, logger=self.logger)
-        self.recver = Receiver(self.conn, ws=WINDOW_SIZE, logger=self.logger)
-        # Runs sender and recver threads separately
-        sender_t = Thread(target=self.sender.run)
-        recver_t = Thread(target=self.recver.run, args=[recv_callback])
+        try:
+            # Mutex to control access to recv_buffer, since the recver and main threads
+            # will both access it simutaneously
+            buffer_mutex = Lock() 
+            self.conn = NetworkLayer('client', self.server, self.port)
+            self.sender = Sender(self.conn, ws=c.WINDOW_SIZE, timeout_sec=c.TIMEOUT, logger=self.logger)
+            self.recver = Receiver(self.conn, ws=c.WINDOW_SIZE, logger=self.logger)
+            # Runs sender and recver threads separately
+            sender_t = Thread(target=self.sender.run)
+            recver_t = Thread(target=self.recver.run, args=[recv_callback])
 
-        # Sends data in PACKET_SIZE sized chunks to server
-        bytes_pending = len(self.data_buffer)
-        sender_t.start()
-        for chunk in utils.getChunks(PACKET_SIZE, self.data_buffer):
-            self.sender.send(chunk)
-        
-        while self.sender.pending_packets():
-            pass
+            # Sends data in PACKET_SIZE sized chunks to server
+            bytes_pending = len(self.data_buffer)
+            sender_t.start()
+            for chunk in utils.getChunks(c.PACKET_SIZE, self.data_buffer):
+                self.sender.send(chunk)
+            
+            while self.sender.pending_packets():
+                pass
 
-        self.sender.stop()
-        sender_t.join()
-        recver_t.start()
+            self.sender.stop()
+            sender_t.join()
+            recver_t.start()
 
-        # Waits for every byte in the response to be recved
-        while bytes_pending:
-            buffer_mutex.acquire()
-            bytes_pending -= len(recv_buffer)
-            sys.stdout.write(recv_buffer)
-            recv_buffer = ''
-            buffer_mutex.release()
+            # Waits for every byte in the response to be recved
+            while bytes_pending:
+                buffer_mutex.acquire()
+                bytes_pending -= len(recv_buffer)
+                sys.stdout.write(recv_buffer)
+                recv_buffer = ''
+                buffer_mutex.release()
 
-        self.recver.stop()
-        recver_t.join()
-        self.conn.disconnect()
+            self.recver.stop()
+            recver_t.join()
+            self.conn.disconnect()
+
+        except:
+            if self.sender: self.sender.stop()
+            if self.recver: self.recver.stop()
+            if self.conn: self.conn.disconnect()
 
     def get_conn_stats(self):
         return self.conn.get_stats()
@@ -85,10 +92,34 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     try:
-        client = Client(args.server, args.port, args.file, Logger())
+        data = []
+        with open(args.file) as f:
+            data = f.read()
+
+        client = Client(args.server, args.port, data, Logger())
         client.start()
+        timer = time_ns()
         client.join()
-        print([e.export() for e in client.logger.events])
+
+        elapsed_time = (time_ns() - timer)/10**9
+        stats = client.get_stats()
+        throughput = stats['bytes_sent'] + stats['bytes_recv']
+        throughput = throughput*8/elapsed_time
+        goodput = stats['sender']['bytes_sent'] + stats['recver']['bytes_recv']
+        goodput = goodput*8/elapsed_time
+        
+        sys.stderr.write('\n')
+        sys.stderr.write(f"Throughput: {throughput:.2f} bps\n")
+        sys.stderr.write(f"Goodput: {goodput:.2f} bps\n")
+        sys.stderr.write(f"Total non-ACK pkts: {stats['sender']['pkts_sent']}\n")
+        sys.stderr.write(f"Total ACK pkts: {stats['recver']['ack_pkts_sent']}\n")
+        sys.stderr.write(f"Total non-ACK retransmissions: {stats['sender']['retransmissions']}\n")
+        sys.stderr.write(f"Total ACK retransmissions: {stats['recver']['retransmissions']}\n")
+        sys.stderr.write(f"Total non-ACK corrupt pkts: {stats['recver']['corrupted_pkts']}\n")
+        sys.stderr.write(f"Total ACK corrupt pkts: {stats['sender']['corrupted_pkts']}\n")
+        sys.stderr.write(f"Total elapsed time: {elapsed_time}s\n")
+        sys.stderr.write('\n')
+        
 
     except (Exception, KeyboardInterrupt) as err:
         print('ERROR: ' + type(err).__name__)

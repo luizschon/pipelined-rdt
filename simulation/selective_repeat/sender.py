@@ -26,6 +26,7 @@ class Sender:
     bytes_sent = 0
     corrupted_pkts = 0
     timeouts = 0
+    pkts_sent = 0
 
     def __init__(self, conn: NetworkLayer, ws=10, timeout_sec=2, logger: Logger=None):
         self.conn = conn
@@ -41,6 +42,7 @@ class Sender:
             debug_log(f'[sr sender]: TIMEOUT, resending seq: {seq}')
             if self.logger: self.logger.mark_event(TIMEOUT, self.base, seq, pkt.msg_S)
             self.conn.udt_send(pkt.get_byte_S())
+            self.pkts_sent += 1
             self.bytes_sent += len(pkt.msg_S)
             self.timeouts += 1
             self.timer[seq].start()
@@ -62,6 +64,7 @@ class Sender:
             if self.logger: self.logger.mark_event(PKT_SENT, self.base, seq, data)
 
             self.conn.udt_send(pkt.get_byte_S())
+            self.pkts_sent += 1
             self.bytes_sent += len(pkt.msg_S)
 
             self.timer[seq].start()
@@ -150,7 +153,8 @@ class Sender:
             return {
                 'bytes_sent': self.bytes_sent,
                 'corrupted_pkts': self.corrupted_pkts,
-                'timeouts': self.timeouts,
+                'retransmissions': self.timeouts,
+                'pkts_sent': self.pkts_sent,
             }
 
 

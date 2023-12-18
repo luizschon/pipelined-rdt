@@ -23,6 +23,8 @@ class Receiver:
     # Stats variables
     bytes_recv = 0
     corrupted_pkts = 0
+    pkts_sent = 0
+    retransmissions = 0
 
     def __init__(self, conn: NetworkLayer, ws=10, logger: Logger=None):
         self.conn = conn
@@ -45,6 +47,8 @@ class Receiver:
             debug_log(f'[sr recver]: Pkt outside range, resending ACK...')
             if self.logger: self.logger.mark_event(DUP_DATA, self.base, seq)
             self.conn.udt_send(Packet(seq, ACK).get_byte_S())
+            self.pkts_sent += 1
+            self.retransmissions += 1
             return
 
         # If seq number received is equal to the base, update the base of the 
@@ -78,9 +82,11 @@ class Receiver:
             else:
                 debug_log(f'[sr recver]: Repeated pkt, resending ACK...')
                 if self.logger: self.logger.mark_event(DUP_DATA, self.base, seq)
+                self.retransmissions += 1
 
         if self.logger: self.logger.mark_event(ACK_SENT, self.base, seq)
         self.conn.udt_send(Packet(seq, ACK).get_byte_S())
+        self.pkts_sent += 1
 
     # Main method of the receiver, should be only called once before the stop
     # method is called
@@ -124,6 +130,8 @@ class Receiver:
             return {
                 'bytes_recv': self.bytes_recv,
                 'corrupted_pkts': self.corrupted_pkts,
+                'ack_pkts_sent': self.pkts_sent,
+                'retransmissions': self.retransmissions,
             }
 
 
