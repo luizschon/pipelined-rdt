@@ -35,5 +35,5 @@ class Logger:
     def __init__(self, role):
         self.role = role
 
-    def mark_event(self, type, data):
-        self.events.append(Event(self.role, type, data))
+    def mark_event(self, type, base, seq, data):
+        self.events.append(Event(self.role, type, seq, base, data))
