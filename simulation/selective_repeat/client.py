@@ -2,7 +2,6 @@ import sys, argparse
 from threading import Thread, Lock
 from sender import Sender
 from receiver import Receiver
-from time import sleep
 
 # Hacky fix to import from parent folder
 path_slip = __file__.split('/')
@@ -14,13 +13,12 @@ from constants import *
 import utils
 
 class Client(Thread):
-    def __init__(self, server, port, file, logger: Logger=None):
+    def __init__(self, server, port, data, logger: Logger=None):
         Thread.__init__(self)
         self.logger = logger
-        self.file = file
-        self.conn = NetworkLayer('client', server, port)
-        self.sender = Sender(self.conn, ws=WINDOW_SIZE, timeout_sec=TIMEOUT, logger=logger)
-        self.recver = Receiver(self.conn, ws=WINDOW_SIZE, logger=logger)
+        self.data_buffer = data
+        self.server = server
+        self.port = port
 
     def run(self):
         # Initialize state variables
@@ -37,36 +35,36 @@ class Client(Thread):
         # will both access it simutaneously
         buffer_mutex = Lock() 
         # Runs sender and recver threads separately
-        sender_t = Thread(target=self.sender.run)
-        recver_t = Thread(target=self.recver.run, args=[recv_callback])
+        conn = NetworkLayer('client', self.server, self.port)
+        sender = Sender(conn, ws=WINDOW_SIZE, timeout_sec=TIMEOUT, logger=self.logger)
+        recver = Receiver(conn, ws=WINDOW_SIZE, logger=self.logger)
+        sender_t = Thread(target=sender.run)
+        recver_t = Thread(target=recver.run, args=[recv_callback])
 
-        with open(self.file) as f:
-            buffer = f.read()
-            bytes_pending = len(buffer)
+        # Sends data in PACKET_SIZE sized chunks to server
+        bytes_pending = len(self.data_buffer)
+        sender_t.start()
+        for chunk in utils.getChunks(PACKET_SIZE, self.data_buffer):
+            sender.send(chunk)
+        
+        while sender.pending_packets():
+            pass
 
-            # Sends data in PACKET_SIZE sized chunks to server
-            sender_t.start()
-            for chunk in utils.getChunks(PACKET_SIZE, buffer):
-                self.sender.send(chunk)
-            
-            while self.sender.pending_packets():
-                pass
+        sender.stop()
+        sender_t.join()
+        recver_t.start()
 
-            self.sender.stop()
-            sender_t.join()
-            recver_t.start()
+        # Waits for every byte in the response to be recved
+        while bytes_pending:
+            buffer_mutex.acquire()
+            bytes_pending -= len(recv_buffer)
+            sys.stdout.write(recv_buffer)
+            recv_buffer = ''
+            buffer_mutex.release()
 
-            # Waits for every byte in the response to be recved
-            while bytes_pending:
-                buffer_mutex.acquire()
-                bytes_pending -= len(recv_buffer)
-                sys.stdout.write(recv_buffer)
-                recv_buffer = ''
-                buffer_mutex.release()
-
-            self.recver.stop()
-            recver_t.join()
-            self.conn.disconnect()
+        recver.stop()
+        recver_t.join()
+        conn.disconnect()
 
 
 if __name__ == '__main__':

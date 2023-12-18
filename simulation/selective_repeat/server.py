@@ -17,9 +17,8 @@ class Server(Thread):
     def __init__(self, server: str, port: str, logger: Logger=None):
         Thread.__init__(self)
         self.logger = logger
-        self.conn = NetworkLayer('server', server, port)
-        self.sender = Sender(self.conn, ws=WINDOW_SIZE, timeout_sec=TIMEOUT, logger=logger)
-        self.recver = Receiver(self.conn, ws=WINDOW_SIZE, logger=logger)
+        self.server = server
+        self.port = port
 
     def run(self):
         # Initialize state variables
@@ -31,30 +30,33 @@ class Server(Thread):
             global recv_buffer
             recv_buffer += msg
 
-        sender_t = Thread(target=self.sender.run)
-        recver_t = Thread(target=self.recver.run, args=[recv_callback])
+        conn = NetworkLayer('server', self.server, self.port)
+        sender = Sender(conn, ws=WINDOW_SIZE, timeout_sec=TIMEOUT, logger=self.logger)
+        recver = Receiver(conn, ws=WINDOW_SIZE, logger=self.logger)
+        sender_t = Thread(target=sender.run)
+        recver_t = Thread(target=recver.run, args=[recv_callback])
         recver_t.start()
 
-        while self.recver.last_recv_time == 0 or time() < self.recver.last_recv_time + TIMEOUT + 5 :
+        while recver.last_recv_time == 0 or time() < recver.last_recv_time + TIMEOUT + 5 :
             pass
 
-        self.recver.stop()
+        recver.stop()
         recver_t.join()
 
         sender_t.start()
 
         # Send captalized text as response to client
         for chunk in utils.getChunks(PACKET_SIZE, recv_buffer):
-            self.sender.send(chunk)
+            sender.send(chunk)
         recv_buffer = '' # Clean buffer
 
         # Wait communication to end
-        while self.sender.pending_packets() and time() < self.sender.last_recv_time + 5:
+        while sender.pending_packets() and time() < sender.last_recv_time + 5:
             pass
 
-        self.sender.stop()
+        sender.stop()
         sender_t.join()
-        self.conn.disconnect()
+        conn.disconnect()
 
 
 if __name__ == '__main__':
