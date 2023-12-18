@@ -85,7 +85,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     try:
-        client = Client(args.server, args.port, args.file, Logger('client'))
+        client = Client(args.server, args.port, args.file, Logger())
         client.start()
         client.join()
         print([e.export() for e in client.logger.events])

@@ -11,9 +11,9 @@ from log_event import Logger
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Simulation.')
-    parser.add_argument('server_port', help='Simulation Port.', type=int)
-    parser.add_argument('vis_port', help='Visualization Port.', type=int)
     parser.add_argument('filename', help='File to be transmitted', type=str)
+    parser.add_argument('server_port', help='Simulation Port.', type=int)
+    parser.add_argument('--vis_port', help='Visualization Port.', type=int, required=False)
     args = parser.parse_args()
 
     # Response function used by server
@@ -21,13 +21,12 @@ if __name__ == '__main__':
         return data.upper()
 
     try:
-        # TODO start connection to visualization app
         data = []
         with open(args.filename) as f:
             data = f.read()
 
-        server_log = Logger('server')
-        client_log = Logger('client')
+        server_log = Logger()
+        client_log = Logger()
         server = Server('localhost', args.server_port, logger=server_log, response_func=uppercase)
         client = Client('localhost', args.server_port, data, client_log)
         server.start()
@@ -35,8 +34,14 @@ if __name__ == '__main__':
         client.start()
         client.join()
         server.join()
-        print(server.get_stats())
-        print(client.get_stats())
+
+        vis_data = {
+            'server_stats': server.get_stats(),
+            'client_stats': client.get_stats(),
+            'server_events': [e.export() for e in server.logger.events],
+            'client_events': [e.export() for e in client.logger.events],
+        }
+        print(vis_data)
 
     except (Exception, KeyboardInterrupt) as err:
         print(err)

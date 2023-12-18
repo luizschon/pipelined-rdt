@@ -82,7 +82,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     try:
-        server = Server(args.server, args.port, Logger('server'))
+        server = Server(args.server, args.port, Logger())
         server.start()
         server.join()
         print([e.export() for e in server.logger.events])

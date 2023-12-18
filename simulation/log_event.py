@@ -13,29 +13,27 @@ ACK_RECV = 8
 DATA_RECV = 9
 
 class Event:
-    def __init__(self, role, type, seq, base, data):
+    def __init__(self, type, seq, base, data):
         self.type = type
         self.data = data
-        self.role = role
         self.seq  = seq
         self.base = base
         self.time = time_ns()
 
     def export(self):
-        return json.dumps({
+        return {
             'type': self.type,
-            'role': self.role,
             'time': self.time,
             'base': self.base,
             'seq': self.seq,
             'data': self.data,
-        })
+        }
 
 class Logger:
     events = []
 
-    def __init__(self, role):
-        self.role = role
+    def __init__(self):
+        pass
 
     def mark_event(self, type, base=0, seq=0, data=''):
-        self.events.append(Event(self.role, type, seq, base, data))
+        self.events.append(Event(type, seq, base, data))

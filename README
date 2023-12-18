@@ -1,0 +1,11 @@
+# Pipelined RTD
+
+## Running the simulation
+
+```bash
+$ python3 simulation/simulation.py [file] [sim port] --vis_port [vis port]
+```
+
+- File: filename of the file that will be transmitted between server and client.
+- Sim port: Port where the server will listen
+- Vis port: Port where visualization data will be transmitted over HTTP (Optional)
