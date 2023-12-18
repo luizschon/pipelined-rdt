@@ -1,5 +1,6 @@
 import sys, argparse
 from threading import Thread, Lock
+from typing import Callable
 from time import time
 from sender import Sender
 from receiver import Receiver
@@ -13,12 +14,18 @@ from log_event import Logger
 from constants import *
 import utils
 
+def default_reponse(data: str):
+    return data
+
 class Server(Thread):
-    def __init__(self, server: str, port: str, logger: Logger=None):
+    def __init__(self, server: str, port: str, response_func: Callable=None, logger: Logger=None):
         Thread.__init__(self)
         self.logger = logger
         self.server = server
         self.port = port
+        self.response_func = response_func
+        if self.response_func == None:
+            self.response_func = default_reponse
 
     def run(self):
         # Initialize state variables
@@ -46,7 +53,7 @@ class Server(Thread):
 
         # Send captalized text as response to client
         for chunk in utils.getChunks(PACKET_SIZE, recv_buffer):
-            self.sender.send(chunk)
+            self.sender.send(self.response_func(chunk))
         recv_buffer = '' # Clean buffer
 
         # Wait communication to end

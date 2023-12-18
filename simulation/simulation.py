@@ -16,6 +16,10 @@ if __name__ == '__main__':
     parser.add_argument('filename', help='File to be transmitted', type=str)
     args = parser.parse_args()
 
+    # Response function used by server
+    def uppercase(data: str):
+        return data.upper()
+
     try:
         # TODO start connection to visualization app
         data = []
@@ -24,7 +28,7 @@ if __name__ == '__main__':
 
         server_log = Logger('server')
         client_log = Logger('client')
-        server = Server('localhost', args.server_port, server_log)
+        server = Server('localhost', args.server_port, logger=server_log, response_func=uppercase)
         client = Client('localhost', args.server_port, data, client_log)
         server.start()
         client.start()
