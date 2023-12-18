@@ -82,7 +82,6 @@ class Sender:
                 debug_log(f'[sr sender] WARNING: Received unexpected ACK, seq: {seq}')
                 return
 
-            # TODO Stop timer for received seq number
             debug_log(f'[sr sender]: Received ACK, seq: {seq}, current base: {self.base}')
             self.timer[seq].stop()
             del self.pkts_in_air[seq]
