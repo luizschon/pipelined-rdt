@@ -1,5 +1,5 @@
-from time import time
 import json
+from time import time_ns
 
 # Event types
 PKT_SENT = 1
@@ -19,7 +19,7 @@ class Event:
         self.role = role
         self.seq  = seq
         self.base = base
-        self.time = time()
+        self.time = time_ns()
 
     def export(self):
         return json.dumps({

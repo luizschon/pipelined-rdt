@@ -31,6 +31,7 @@ if __name__ == '__main__':
         server = Server('localhost', args.server_port, logger=server_log, response_func=uppercase)
         client = Client('localhost', args.server_port, data, client_log)
         server.start()
+        sleep(1)
         client.start()
         client.join()
         server.join()
