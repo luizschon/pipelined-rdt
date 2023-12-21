@@ -4,6 +4,7 @@ import threading
 from time import sleep
 import random
 import RDT
+import sys
 from utils import debug_log
 
 # TCP + IP + Ethernet headers size
@@ -95,7 +96,9 @@ class NetworkLayer:
                 with self.lock:
                     decoded_bytes = recv_bytes.decode('utf-8')
                     self.buffer_S += decoded_bytes
-                    self.bytes_recv += len(decoded_bytes) + HEADER_TCP_IP
+                    bytes_len = len(decoded_bytes)
+                    if bytes_len > 0:
+                        self.bytes_recv += bytes_len + HEADER_TCP_IP
             except BlockingIOError as err:
                 pass
             except socket.timeout as err:
