@@ -78,7 +78,7 @@ class Sender:
         with self.control_lock:
             if not self.pkts_in_air.get(seq):
                 debug_log(f'[sr sender] WARNING: Received unexpected ACK, seq: {seq}')
-                if self.logger: self.logger.mark_event(DUP_ACK, self.base, seq, msg)
+                if self.logger: self.logger.mark_event(DUP_ACK, self.base, seq)
                 return
 
             debug_log(f'[sr sender]: Received ACK, seq: {seq}, current base: {self.base}')
