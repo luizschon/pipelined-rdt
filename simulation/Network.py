@@ -61,7 +61,7 @@ class NetworkLayer:
 
     def udt_send(self, msg_S):
         # return without sending if the packet is being dropped
-        if random.random() < self.prob_pkt_loss and not RDT.Packet.from_byte_S(msg_S).is_fin_pack():
+        if random.random() < self.prob_pkt_loss:
             return
         # corrupt a packet
         if random.random() < self.prob_byte_corr:

@@ -24,9 +24,8 @@ class Sender:
     last_recv_time = 0
     # Stats variables
     bytes_sent = 0
-    corrupted_pkts = 0
-    timeouts = 0
     pkts_sent = 0
+    retransmissions = 0
 
     def __init__(self, conn: NetworkLayer, ws=10, timeout_sec=2, logger: Logger=None):
         self.conn = conn
@@ -44,7 +43,7 @@ class Sender:
             self.conn.udt_send(pkt.get_byte_S())
             self.pkts_sent += 1
             self.bytes_sent += len(pkt.msg_S)
-            self.timeouts += 1
+            self.retransmissions += 1
             self.timer[seq].start()
 
     # Method called from layer above (server or client) to send data through
@@ -136,8 +135,7 @@ class Sender:
         with self.control_lock:
             return {
                 'bytes_sent': self.bytes_sent,
-                'corrupted_pkts': self.corrupted_pkts,
-                'retransmissions': self.timeouts,
+                'retransmissions': self.retransmissions,
                 'pkts_sent': self.pkts_sent,
             }
 

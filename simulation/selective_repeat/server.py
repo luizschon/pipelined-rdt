@@ -45,7 +45,6 @@ class Server(Thread):
             global recv_buffer
             recv_buffer += msg
             for chunk in utils.getChunks(c.PACKET_SIZE, msg):
-                print(self.response_func(chunk))
                 self.sender.send(self.response_func(chunk))
 
         # Runs sender and recver threads separately
@@ -83,31 +82,32 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     def uppercase(data: str):
-        return data.upper()
+        return data
 
     try:
         server = Server(args.server, args.port, uppercase, logger=Logger())
         server.start()
         server.join()
 
-        elapsed_time = (time_ns() - server.start_time)/10**9
+        first_pkt_time = server.logger.events[0].export()['time']
+        last_pkt_time  = server.logger.events[-1].export()['time']
+
+        elapsed_time = (last_pkt_time - first_pkt_time)/10**9
         stats = server.get_stats()
         throughput = stats['bytes_sent'] + stats['bytes_recv']
         throughput = throughput*8/elapsed_time
         goodput = stats['sender']['bytes_sent'] + stats['recver']['bytes_recv']
         goodput = goodput*8/elapsed_time
-        
+
         sys.stderr.write('\n')
         sys.stderr.write(f"Throughput: {throughput:.2f} bps\n")
         sys.stderr.write(f"Goodput: {goodput:.2f} bps\n")
-        sys.stderr.write(f"Total non-ACK pkts: {stats['sender']['pkts_sent']}\n")
+        sys.stderr.write(f"Total data pkts: {stats['sender']['pkts_sent']}\n")
         sys.stderr.write(f"Total ACK pkts: {stats['recver']['ack_pkts_sent']}\n")
-        sys.stderr.write(f"Total non-ACK retransmissions: {stats['sender']['retransmissions']}\n")
+        sys.stderr.write(f"Total data retransmissions: {stats['sender']['retransmissions']}\n")
         sys.stderr.write(f"Total ACK retransmissions: {stats['recver']['retransmissions']}\n")
-        sys.stderr.write(f"Total non-ACK corrupt pkts: {stats['recver']['corrupted_pkts']}\n")
-        sys.stderr.write(f"Total ACK corrupt pkts: {stats['sender']['corrupted_pkts']}\n")
-        sys.stderr.write(f"Total elapsed time: {elapsed_time}s\n")
-        sys.stderr.write('\n')
+        sys.stderr.write(f"Total corrupted pkts: {stats['recver']['corrupted_pkts']}\n")
+        sys.stderr.write(f"Total communication time: {elapsed_time}s\n")
             
     except (Exception, KeyboardInterrupt) as err:
         print('ERROR: ' + type(err).__name__)
