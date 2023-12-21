@@ -70,16 +70,10 @@ class Sender:
             self.timer[seq].start()
             self.next_seq = (self.next_seq + 1) % self.ws
 
-    # Internal function that handles data being received. Calls data recv
-    # callback specified by user (server or client)
-    def _recv(self, pkt: Packet):
+    # Method called from upper-layer to notify sender that ack was received by
+    # receiver. Updates base and releases sender's semaphores
+    def handle_ack(self, seq: int):
         self.last_recv_time = time()
-        seq = pkt.seq_num
-        msg = pkt.msg_S
-
-        if not pkt.is_ack_pack():
-            debug_log(f'[sr sender] WARNING: Expected ACK, got "{msg or None}"')
-            return
 
         with self.control_lock:
             if not self.pkts_in_air.get(seq):
@@ -118,17 +112,7 @@ class Sender:
         debug_log(f'WINDOW SIZE: {self.ws}\n')
 
         while self.running:
-            data_recv = self.conn.udt_receive()
-            if data_recv == '':
-                continue
-
-            # Get packets that are not corrupt and receive them
-            pkts, corrupt = getPackets(data_recv)
-            if corrupt:
-                self.corrupted_pkts += 1
-                if self.logger: self.logger.mark_event(CORRUPT)
-            for p in pkts:
-                self._recv(p)
+            pass
 
         debug_log('Stopped Selective Repeat sender!')
     

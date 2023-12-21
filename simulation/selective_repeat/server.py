@@ -18,61 +18,52 @@ def default_reponse(data: str):
     return data
 
 class Server(Thread):
-    start_time = 0
-
-    def __init__(self, server: str, port: str, response_func: Callable=None, logger: Logger=None):
+    def __init__(
+        self,
+        server: str, port: str,
+        response_func: Callable[[str], str]=None,
+        logger: Logger=None
+    ):
         Thread.__init__(self)
         self.logger = logger
         self.server = server
         self.port = port
-        self.response_func = response_func
-        if self.response_func == None:
-            self.response_func = default_reponse
+        self.response_func = response_func or default_reponse
 
     def run(self):
         # Initialize state variables
         global recv_buffer
         recv_buffer = ''
 
-        # Callback called by Receiver when data arrives
+        self.conn = NetworkLayer('server', self.server, self.port)
+        self.sender = Sender(self.conn, ws=c.WINDOW_SIZE, timeout_sec=c.TIMEOUT, logger=self.logger)
+        self.recver = Receiver(self.conn, self.sender.handle_ack, ws=c.WINDOW_SIZE, logger=self.logger)
+
+        # Callback called by Receiver when data arrives. Processes data and send
+        # back to the client.
         def recv_callback(msg: str):
             global recv_buffer
             recv_buffer += msg
-
-        try:
-            self.conn = NetworkLayer('server', self.server, self.port)
-            self.sender = Sender(self.conn, ws=c.WINDOW_SIZE, timeout_sec=c.TIMEOUT, logger=self.logger)
-            self.recver = Receiver(self.conn, ws=c.WINDOW_SIZE, logger=self.logger)
-            sender_t = Thread(target=self.sender.run)
-            recver_t = Thread(target=self.recver.run, args=[recv_callback])
-            recver_t.start()
-            self.start_time = time_ns()
-
-            while self.recver.last_recv_time == 0 or time() < self.recver.last_recv_time + c.TIMEOUT + 5 :
-                pass
-
-            self.recver.stop()
-            recver_t.join()
-            sender_t.start()
-
-            # Send captalized text as response to client
-            for chunk in utils.getChunks(c.PACKET_SIZE, recv_buffer):
+            for chunk in utils.getChunks(c.PACKET_SIZE, msg):
+                print(self.response_func(chunk))
                 self.sender.send(self.response_func(chunk))
-            recv_buffer = '' # Clean buffer
 
-            # Wait communication to end
-            while self.sender.pending_packets() and time() < self.sender.last_recv_time + 5:
-                pass
+        # Runs sender and recver threads separately
+        sender_t = Thread(target=self.sender.run)
+        recver_t = Thread(target=self.recver.run, args=[recv_callback])
+        sender_t.start()
+        recver_t.start()
 
-            self.sender.stop()
-            sender_t.join()
-            self.conn.disconnect()
+        # Waits for no data to arrive for some time before closing connection to
+        # the client
+        while self.recver.last_recv_time == 0 or time() < self.recver.last_recv_time + c.TIMEOUT + 5 :
+            pass
 
-        except:
-            if self.sender: self.sender.stop()
-            if self.recver: self.recver.stop()
-            if self.conn: self.conn.disconnect()
-
+        self.sender.stop()
+        self.recver.stop()
+        sender_t.join()
+        recver_t.join()
+        self.conn.disconnect()
 
     def get_conn_stats(self):
         return self.conn.get_stats()
@@ -95,7 +86,7 @@ if __name__ == '__main__':
         return data.upper()
 
     try:
-        server = Server(args.server, args.port, uppercase, Logger())
+        server = Server(args.server, args.port, uppercase, logger=Logger())
         server.start()
         server.join()
 

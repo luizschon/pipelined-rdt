@@ -26,52 +26,45 @@ class Client(Thread):
         global recv_buffer
         recv_buffer = ''
 
+        # Mutex to control access to recv_buffer, since the recver and main threads
+        # will both access it simutaneously
+        buffer_mutex = Lock() 
+        self.conn = NetworkLayer('client', self.server, self.port)
+        self.sender = Sender(self.conn, ws=c.WINDOW_SIZE, timeout_sec=c.TIMEOUT, logger=self.logger)
+        self.recver = Receiver(self.conn, self.sender.handle_ack, ws=c.WINDOW_SIZE, logger=self.logger)
+
         # Callback called by Receiver when data arrives
         def recv_callback(msg: str):
             global recv_buffer
             with buffer_mutex:
                 recv_buffer += msg
 
-        try:
-            # Mutex to control access to recv_buffer, since the recver and main threads
-            # will both access it simutaneously
-            buffer_mutex = Lock() 
-            self.conn = NetworkLayer('client', self.server, self.port)
-            self.sender = Sender(self.conn, ws=c.WINDOW_SIZE, timeout_sec=c.TIMEOUT, logger=self.logger)
-            self.recver = Receiver(self.conn, ws=c.WINDOW_SIZE, logger=self.logger)
-            # Runs sender and recver threads separately
-            sender_t = Thread(target=self.sender.run)
-            recver_t = Thread(target=self.recver.run, args=[recv_callback])
+        # Runs sender and recver threads separately
+        sender_t = Thread(target=self.sender.run)
+        recver_t = Thread(target=self.recver.run, args=[recv_callback])
+        sender_t.start()
+        recver_t.start()
 
-            # Sends data in PACKET_SIZE sized chunks to server
-            bytes_pending = len(self.data_buffer)
-            sender_t.start()
-            for chunk in utils.getChunks(c.PACKET_SIZE, self.data_buffer):
-                self.sender.send(chunk)
-            
-            while self.sender.pending_packets():
-                pass
+        # Sends data in PACKET_SIZE sized chunks to server
+        bytes_pending = len(self.data_buffer)
+        print(f'bytes pending: {bytes_pending}')
+        for chunk in utils.getChunks(c.PACKET_SIZE, self.data_buffer):
+            self.sender.send(chunk)
+        
+        # Waits for every byte in the response to be recved before closing the
+        # connection to the server
+        while bytes_pending:
+            buffer_mutex.acquire()
+            bytes_pending -= len(recv_buffer)
+            sys.stdout.write(recv_buffer)
+            recv_buffer = ''
+            buffer_mutex.release()
 
-            self.sender.stop()
-            sender_t.join()
-            recver_t.start()
-
-            # Waits for every byte in the response to be recved
-            while bytes_pending:
-                buffer_mutex.acquire()
-                bytes_pending -= len(recv_buffer)
-                sys.stdout.write(recv_buffer)
-                recv_buffer = ''
-                buffer_mutex.release()
-
-            self.recver.stop()
-            recver_t.join()
-            self.conn.disconnect()
-
-        except:
-            if self.sender: self.sender.stop()
-            if self.recver: self.recver.stop()
-            if self.conn: self.conn.disconnect()
+        self.sender.stop()
+        self.recver.stop()
+        sender_t.join()
+        recver_t.join()
+        self.conn.disconnect()
 
     def get_conn_stats(self):
         return self.conn.get_stats()

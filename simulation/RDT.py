@@ -15,7 +15,7 @@ class Packet:
     checksum_length = 32
     ack_length = 1
 
-    def __init__(self, seq_num, msg_S, ack=False):
+    def __init__(self, seq_num, msg_S='', ack=False):
         self.seq_num = seq_num
         self.msg_S = msg_S
         self.ack = ack

@@ -26,15 +26,26 @@ class Receiver:
     pkts_sent = 0
     retransmissions = 0
 
-    def __init__(self, conn: NetworkLayer, ws=10, logger: Logger=None):
+    def __init__(
+        self,
+        conn: NetworkLayer,
+        sender_ack_handler: Callable[[int], any],
+        ws=10, logger: Logger=None
+    ):
         self.conn = conn
         self.logger = logger
         self.ws = ws
         self.recv_buffer = [None] * ws 
+        self.sender_ack_handler = sender_ack_handler
 
     def _recv(self, pkt: Packet, recv_callback: Callable[[str], any]):
         seq = pkt.seq_num
         msg = pkt.msg_S
+
+        if pkt.is_ack_pack():
+            self.sender_ack_handler(seq)
+            return
+
         usable_len = int(self.ws/2)
 
         debug_log(f'[sr recver]: Received pkt seq: {seq}')
@@ -46,9 +57,9 @@ class Receiver:
         if (seq - self.base) % self.ws + 1 > usable_len:
             debug_log(f'[sr recver]: Pkt outside range, resending ACK...')
             if self.logger: self.logger.mark_event(DUP_DATA, self.base, seq)
-            self.conn.udt_send(Packet(seq, ACK).get_byte_S())
             self.pkts_sent += 1
             self.retransmissions += 1
+            self.conn.udt_send(Packet(seq, ack=True).get_byte_S())
             return
 
         # If seq number received is equal to the base, update the base of the 
@@ -85,7 +96,7 @@ class Receiver:
                 self.retransmissions += 1
 
         if self.logger: self.logger.mark_event(ACK_SENT, self.base, seq)
-        self.conn.udt_send(Packet(seq, ACK).get_byte_S())
+        self.conn.udt_send(Packet(seq, ack=True).get_byte_S())
         self.pkts_sent += 1
 
     # Main method of the receiver, should be only called once before the stop
