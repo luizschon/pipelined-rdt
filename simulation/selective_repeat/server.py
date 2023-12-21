@@ -1,7 +1,7 @@
 import sys, argparse
-from threading import Thread
+from threading import Thread, Lock
 from typing import Callable
-from time import time, time_ns
+from time import time
 from sender import Sender
 from receiver import Receiver
 
@@ -35,17 +35,18 @@ class Server(Thread):
         global recv_buffer
         recv_buffer = ''
 
+        # Mutex to control access to recv_buffer, since the recver and main threads
+        # will both access it simutaneously
+        buffer_mutex = Lock() 
         self.conn = NetworkLayer('server', self.server, self.port)
         self.sender = Sender(self.conn, ws=c.WINDOW_SIZE, timeout_sec=c.TIMEOUT, logger=self.logger)
         self.recver = Receiver(self.conn, self.sender.handle_ack, ws=c.WINDOW_SIZE, logger=self.logger)
 
-        # Callback called by Receiver when data arrives. Processes data and send
-        # back to the client.
+        # Callback called by Receiver when data arrives
         def recv_callback(msg: str):
-            global recv_buffer
-            recv_buffer += msg
-            for chunk in utils.getChunks(c.PACKET_SIZE, msg):
-                self.sender.send(self.response_func(chunk))
+            with buffer_mutex:
+                global recv_buffer
+                recv_buffer += msg
 
         # Runs sender and recver threads separately
         sender_t = Thread(target=self.sender.run)
@@ -56,7 +57,16 @@ class Server(Thread):
         # Waits for no data to arrive for some time before closing connection to
         # the client
         while self.recver.last_recv_time == 0 or time() < self.recver.last_recv_time + c.TIMEOUT + 5 :
-            pass
+            # Get chunks
+            with buffer_mutex:
+                if len(recv_buffer) == 0:
+                    continue
+                chunks = utils.getChunks(c.PACKET_SIZE, recv_buffer)
+                recv_buffer = ''
+
+            # Send processed data outside of lock so we are dead-lock free
+            for chunk in chunks:
+                self.sender.send(self.response_func(chunk))
 
         self.sender.stop()
         self.recver.stop()
@@ -82,7 +92,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     def uppercase(data: str):
-        return data
+        return data.upper()
 
     try:
         server = Server(args.server, args.port, uppercase, logger=Logger())
@@ -110,5 +120,6 @@ if __name__ == '__main__':
         sys.stderr.write(f"Total communication time: {elapsed_time}s\n")
             
     except (Exception, KeyboardInterrupt) as err:
-        print('ERROR: ' + type(err).__name__)
-        print(err)
+        sys.stderr.write('ERROR: ' + type(err).__name__ + '\n')
+        sys.stderr.write(str(err))
+        sys.stderr.write('\n')

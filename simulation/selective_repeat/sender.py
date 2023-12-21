@@ -1,6 +1,6 @@
 import sys, argparse
 from threading import Thread, Lock, Semaphore
-from time import sleep, time
+from time import sleep
 
 # Hacky fix to import from parent folder
 path_slip = __file__.split('/')
@@ -21,7 +21,6 @@ class Sender:
     timer = []
     status_lock = Lock()    # Lock for running status
     control_lock = Lock()   # Lock for control variables
-    last_recv_time = 0
     # Stats variables
     bytes_sent = 0
     pkts_sent = 0
@@ -38,7 +37,7 @@ class Sender:
     def _handle_timeout(self, seq: int):
         with self.control_lock:
             pkt = self.pkts_in_air[seq]
-            debug_log(f'[sr sender]: TIMEOUT, resending seq: {seq}')
+            debug_log(f'[sr sender]: TIMEOUT, resending seq: {seq}, curr base: {self.base}')
             if self.logger: self.logger.mark_event(TIMEOUT, self.base, seq, pkt.msg_S)
             self.conn.udt_send(pkt.get_byte_S())
             self.pkts_sent += 1
@@ -59,7 +58,7 @@ class Sender:
             pkt = Packet(seq, str(data))
             self.pkts_in_air[seq] = pkt
 
-            debug_log(f'[sr sender]: Sent packet, seq: {seq}, msg len: {len(data)}')
+            debug_log(f'[sr sender]: Sent packet, seq: {seq}, msg len: {len(data)}, curr base: {self.base}')
             if self.logger: self.logger.mark_event(PKT_SENT, self.base, seq, data)
 
             self.conn.udt_send(pkt.get_byte_S())
@@ -72,15 +71,13 @@ class Sender:
     # Method called from upper-layer to notify sender that ack was received by
     # receiver. Updates base and releases sender's semaphores
     def handle_ack(self, seq: int):
-        self.last_recv_time = time()
-
         with self.control_lock:
             if not self.pkts_in_air.get(seq):
                 debug_log(f'[sr sender] WARNING: Received unexpected ACK, seq: {seq}')
                 if self.logger: self.logger.mark_event(DUP_ACK, self.base, seq)
                 return
 
-            debug_log(f'[sr sender]: Received ACK, seq: {seq}, current base: {self.base}')
+            debug_log(f'[sr sender]: Received ACK, seq: {seq}, curr base: {self.base}')
             self.timer[seq].stop()
             del self.pkts_in_air[seq]
             old_base = self.base
@@ -93,7 +90,7 @@ class Sender:
 
             if self.logger: self.logger.mark_event(ACK_RECV, self.base, seq)
 
-            # Libera semaforos somente se base mudou
+            # Release semaphores only if base changed
             if self.base != old_base:
                 debug_log(f'[sr sender]: Shifted base: {self.base}')
                 self.semph.release((self.base - old_base) % self.ws)

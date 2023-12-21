@@ -13,7 +13,7 @@ HEADER_TCP_IP = 66
 ## Provides an abstraction for the network layer
 class NetworkLayer:
     # configuration parameters
-    prob_pkt_loss = 0
+    prob_pkt_loss = 0.1
     prob_byte_corr = 0
     prob_pkt_reorder = 0
 
@@ -79,13 +79,14 @@ class NetworkLayer:
                 self.reorder_msg_S = None
 
         # keep calling send until all the bytes are transferred
-        totalsent = 0
-        while totalsent < len(msg_S):
-            sent = self.conn.send(msg_S[totalsent:].encode('utf-8'))
-            if sent == 0:
-                raise RuntimeError("socket connection broken")
-            self.bytes_sent += sent + HEADER_TCP_IP
-            totalsent = totalsent + sent
+        with self.lock:
+            totalsent = 0
+            while totalsent < len(msg_S):
+                sent = self.conn.send(msg_S[totalsent:].encode('utf-8'))
+                if sent == 0:
+                    raise RuntimeError("socket connection broken")
+                self.bytes_sent += sent + HEADER_TCP_IP
+                totalsent = totalsent + sent
 
 
     ## Receive data from the network and save in internal buffer

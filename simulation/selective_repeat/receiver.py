@@ -48,8 +48,7 @@ class Receiver:
 
         usable_len = int(self.ws/2)
 
-        debug_log(f'[sr recver]: Received pkt seq: {seq}')
-        debug_log(f'[sr recver]: Current base: {self.base}')
+        debug_log(f'[sr recver]: Received pkt seq: {seq}, curr base: {self.base}')
         if self.logger: self.logger.mark_event(DATA_RECV, self.base, seq, msg)
 
         # If seq number is out of the expected waiting range, send repeated ACK.
@@ -74,8 +73,8 @@ class Receiver:
             data = ''.join([msg] + self.recv_buffer[:counter])
             self.base = (self.base + counter + 1) % self.ws
 
-            debug_log(f'[sr recver]: Received base seq number, updating base and sending data to upper-layer')
-            debug_log(f'             Pkts ACKed: {counter + 1}')
+            debug_log(f'[sr recver]: Received base seq number, updating base and sending data')
+            debug_log(f'             Packets recv: {counter + 1}')
 
             # Send data to upper-layer and clean recv buffer
             recv_callback(data)
