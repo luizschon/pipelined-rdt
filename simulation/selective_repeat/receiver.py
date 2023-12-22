@@ -29,21 +29,21 @@ class Receiver:
     def __init__(
         self,
         conn: NetworkLayer,
-        sender_ack_handler: Callable[[int], any],
+        sender_ack_notifier: Callable[[int], any],
         ws=10, logger: Logger=None
     ):
         self.conn = conn
         self.logger = logger
         self.ws = ws
         self.recv_buffer = [None] * ws 
-        self.sender_ack_handler = sender_ack_handler
+        self.sender_ack_notifier = sender_ack_notifier
 
     def _recv(self, pkt: Packet, recv_callback: Callable[[str], any]):
         seq = pkt.seq_num
         msg = pkt.msg_S
 
         if pkt.is_ack_pack():
-            self.sender_ack_handler(seq)
+            self.sender_ack_notifier(seq)
             return
 
         usable_len = int(self.ws/2)

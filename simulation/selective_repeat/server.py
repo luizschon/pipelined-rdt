@@ -40,7 +40,7 @@ class Server(Thread):
         buffer_mutex = Lock() 
         self.conn = NetworkLayer('server', self.server, self.port)
         self.sender = Sender(self.conn, ws=c.WINDOW_SIZE, timeout_sec=c.TIMEOUT, logger=self.logger)
-        self.recver = Receiver(self.conn, self.sender.handle_ack, ws=c.WINDOW_SIZE, logger=self.logger)
+        self.recver = Receiver(self.conn, self.sender.notify_ack, ws=c.WINDOW_SIZE, logger=self.logger)
 
         # Callback called by Receiver when data arrives
         def recv_callback(msg: str):
@@ -112,8 +112,8 @@ if __name__ == '__main__':
         sys.stderr.write('\n')
         sys.stderr.write(f"Throughput: {throughput:.2f} bps\n")
         sys.stderr.write(f"Goodput: {goodput:.2f} bps\n")
-        sys.stderr.write(f"Total data pkts: {stats['sender']['pkts_sent']}\n")
-        sys.stderr.write(f"Total ACK pkts: {stats['recver']['ack_pkts_sent']}\n")
+        sys.stderr.write(f"Total data pkts (with retransmissions): {stats['sender']['pkts_sent']}\n")
+        sys.stderr.write(f"Total ACK pkts (with retransmissions): {stats['recver']['ack_pkts_sent']}\n")
         sys.stderr.write(f"Total data retransmissions: {stats['sender']['retransmissions']}\n")
         sys.stderr.write(f"Total ACK retransmissions: {stats['recver']['retransmissions']}\n")
         sys.stderr.write(f"Total corrupted pkts: {stats['recver']['corrupted_pkts']}\n")

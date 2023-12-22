@@ -31,7 +31,7 @@ class Client(Thread):
         buffer_mutex = Lock() 
         self.conn = NetworkLayer('client', self.server, self.port)
         self.sender = Sender(self.conn, ws=c.WINDOW_SIZE, timeout_sec=c.TIMEOUT, logger=self.logger)
-        self.recver = Receiver(self.conn, self.sender.handle_ack, ws=c.WINDOW_SIZE, logger=self.logger)
+        self.recver = Receiver(self.conn, self.sender.notify_ack, ws=c.WINDOW_SIZE, logger=self.logger)
 
         # Callback called by Receiver when data arrives
         def recv_callback(msg: str):

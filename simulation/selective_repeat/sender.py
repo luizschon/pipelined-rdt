@@ -7,7 +7,7 @@ path_slip = __file__.split('/')
 sys.path.append('/'.join(path_slip[0:len(path_slip)-2]))
 
 from Network import NetworkLayer
-from RDT import Packet, getPackets
+from RDT import Packet
 from async_timer import AsyncTimer
 from utils import debug_log
 from log_event import *
@@ -17,10 +17,12 @@ class Sender:
     base = 0
     next_seq = 0
     pkts_in_air = dict()
+    ack_queue = []
     running = False
     timer = []
     status_lock = Lock()    # Lock for running status
     control_lock = Lock()   # Lock for control variables
+    queue_lock = Lock()     # Lock for ack queue
     # Stats variables
     bytes_sent = 0
     pkts_sent = 0
@@ -68,9 +70,14 @@ class Sender:
             self.timer[seq].start()
             self.next_seq = (self.next_seq + 1) % self.ws
 
-    # Method called from upper-layer to notify sender that ack was received by
-    # receiver. Updates base and releases sender's semaphores
-    def handle_ack(self, seq: int):
+    # Method called from receiver to notify sender that ack was received.
+    def notify_ack(self, seq: int):
+        with self.queue_lock:
+            self.ack_queue.append(seq)
+
+    # Internal method called by the sender's main loop when there are ACK enqueued
+    # Updates base and releases sender's semaphores
+    def _handle_ack(self, seq: int):
         with self.control_lock:
             if not self.pkts_in_air.get(seq):
                 debug_log(f'[sr sender] WARNING: Received unexpected ACK, seq: {seq}')
@@ -108,7 +115,11 @@ class Sender:
         debug_log(f'WINDOW SIZE: {self.ws}\n')
 
         while self.running:
-            pass
+            with self.queue_lock: 
+                if len(self.ack_queue) == 0: continue
+                seq = self.ack_queue[0]
+                self.ack_queue = self.ack_queue[1:]
+            self._handle_ack(seq)
 
         debug_log('Stopped Selective Repeat sender!')
     
@@ -122,6 +133,7 @@ class Sender:
         for timer in self.timer: timer.stop()
         self.base = 0
         self.next_seq = 0
+        self.ack_queue = []
         self.pkts_in_air = dict()
 
     def pending_packets(self) -> bool:
@@ -153,7 +165,7 @@ if __name__ == '__main__':
         runner = Thread(target=sender.run)
         runner.start()
 
-        for msg in "o guga eh favoravel a brotherage, o tempo todo me aparece esse lobo pidao".split(' '):
+        for msg in "TESTE1 TESTE2 TESTE3 TESTE4 TESTE5 TESTE6 TESTE7 TESTE8 TESTE9 TESTE10 TESTE11".split(' '):
             sender.send(msg)
         while sender.pending_packets():
             sleep(1)
